@@ -1,15 +1,6 @@
 # Cisco IOS-XR ISP Core Guide
 ## MPLS L3VPN, EVPN, Segment Routing SR-MPLS dan SRv6
 
-**Penulis:** Senior Network Architect, 15+ tahun ISP Core MPLS
-**OS:** Cisco IOS-XR 7.x dan 24.x
-**Platform:** ASR 9000, NCS 5500, NCS 540, NCS 5700, XRv 9000
-**Fokus:** ISP Core, L3VPN, EVPN, SR-MPLS, SRv6
-**AS Contoh:** 65000
-**Status:** Bab 1 sampai Bab 9, edisi lengkap
-
----
-
 ## Daftar Isi
 
 - Bab 1: Arsitektur IOS-XR dan Matriks Platform
