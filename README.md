@@ -2,15 +2,15 @@
 
 ## Daftar Isi
 
-- Modul 1: Architecture IOS-XR dan Matrix Platform
-- Modul 2: Workflow Configuration, Commit 2-Stage, Rollback, dan Operasional
-- Modul 3: Fondasi Transport, IGP, MPLS LDP, dan BGP Labeled Unicast
-- Modul 4: BGP Core, Route Reflector, dan MPLS L3VPN End to End
-- Modul 5: Segment Routing MPLS, SR Policy, dan TI-LFA
-- Modul 6: SRv6, Micro-SID, dan Migrasi dari SR-MPLS
-- Modul 7: EVPN VPWS, VPLS, dan EVPN E-LAN
-- Modul 8: EVPN L3VPN, Interworking L3VPN dan EVPN
-- Modul 9: Scale, High Availability, QoS Core, dan Security Control Plane
+- [Modul 1: Architecture IOS-XR dan Matrix Platform](https://github.com/anggrdwjy/Library-Cisco-IOSXR-ServiceProvider#modul-1-architecture-ios-xr-dan-matrix-platform)
+- [Modul 2: Workflow Configuration, Commit 2-Stage, Rollback, dan Operasional](https://github.com/anggrdwjy/Library-Cisco-IOSXR-ServiceProvider#modul-2-workflow-configuration-commit-2-stage-rollback-dan-operasional)
+- [Modul 3: Fondasi Transport, IGP, MPLS LDP, dan BGP Labeled Unicast](https://github.com/anggrdwjy/Library-Cisco-IOSXR-ServiceProvider#modul-3-fondasi-transport-igp-mpls-ldp-dan-bgp-labeled-unicast)
+- [Modul 4: BGP Core, Route Reflector, dan MPLS L3VPN End to End](https://github.com/anggrdwjy/Library-Cisco-IOSXR-ServiceProvider#modul-4-bgp-core-route-reflector-dan-mpls-l3vpn-end-to-end)
+- [Modul 5: Segment Routing MPLS, SR Policy, dan TI-LFA](https://github.com/anggrdwjy/Library-Cisco-IOSXR-ServiceProvider#modul-5-segment-routing-mpls-sr-policy-dan-ti-lfa)
+- [Modul 6: SRv6, Micro-SID, dan Migrasi dari SR-MPLS](https://github.com/anggrdwjy/Library-Cisco-IOSXR-ServiceProvider#modul-6-srv6-micro-sid-dan-migrasi-dari-sr-mpls)
+- [Modul 7: EVPN VPWS, VPLS, dan EVPN E-LAN](https://github.com/anggrdwjy/Library-Cisco-IOSXR-ServiceProvider#modul-7-evpn-vpws-vpls-dan-evpn-e-lan)
+- [Modul 8: EVPN L3VPN, Interworking L3VPN dan EVPN](https://github.com/anggrdwjy/Library-Cisco-IOSXR-ServiceProvider#modul-8-evpn-l3vpn-interworking-l3vpn-dan-evpn)
+- [Modul 9: Scale, High Availability, QoS Core, dan Security Control Plane](https://github.com/anggrdwjy/Library-Cisco-IOSXR-ServiceProvider#modul-9-scale-high-availability-qos-core-dan-security-control-plane)
 
 ## Modul 1: Architecture IOS-XR dan Matrix Platform
 
