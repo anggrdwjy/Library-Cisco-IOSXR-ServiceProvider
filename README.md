@@ -1,92 +1,63 @@
-# Cisco IOS-XR ISP Core Guide
-## MPLS L3VPN, EVPN, Segment Routing SR-MPLS dan SRv6
+# Cisco IOS-XR - Implementation and Operation Guide
 
 ## Daftar Isi
 
-- Bab 1: Arsitektur IOS-XR dan Matriks Platform
-- Bab 2: Workflow Konfigurasi, Commit 2-Stage, Rollback, dan Operasional
-- Bab 3: Fondasi Transport, IGP, MPLS LDP, dan BGP Labeled Unicast
-- Bab 4: BGP Core, Route Reflector, dan MPLS L3VPN End to End
-- Bab 5: Segment Routing MPLS, SR Policy, dan TI-LFA
-- Bab 6: SRv6, Micro-SID, dan Migrasi dari SR-MPLS
-- Bab 7: EVPN VPWS, VPLS, dan EVPN E-LAN
-- Bab 8: EVPN L3VPN, Interworking L3VPN dan EVPN
-- Bab 9: Skala, High Availability, QoS Core, dan Security Control Plane
+- Modul 1: Architecture IOS-XR dan Matrix Platform
+- Modul 2: Workflow Configuration, Commit 2-Stage, Rollback, dan Operasional
+- Modul 3: Fondasi Transport, IGP, MPLS LDP, dan BGP Labeled Unicast
+- Modul 4: BGP Core, Route Reflector, dan MPLS L3VPN End to End
+- Modul 5: Segment Routing MPLS, SR Policy, dan TI-LFA
+- Modul 6: SRv6, Micro-SID, dan Migrasi dari SR-MPLS
+- Modul 7: EVPN VPWS, VPLS, dan EVPN E-LAN
+- Modul 8: EVPN L3VPN, Interworking L3VPN dan EVPN
+- Modul 9: Scale, High Availability, QoS Core, dan Security Control Plane
 
-## Konvensi yang Dipakai di Semua Bab
-
-- **Loopback PE dan P:** 10.0.0.0/24, format /32
-- **Link point-to-point core:** 10.255.0.0/16, format /31
-- **Loopback RR:** 10.0.0.101/32 dan 10.0.0.102/32
-- **Interface core:** HundredGigE0/0/0/0, GigabitEthernet0/0/0/0, Bundle-Ether1
-- **VRF contoh:** CUSTOMER-A, RD 65000:100, RT 65000:100
-- Setiap blok konfigurasi diakhiri dengan `commit`. Tanpa `commit`, tidak ada yang berubah di router.
-
-### Topologi Referensi
-
-```
-CE1 (192.168.1.2/30) -- PE1 (10.0.0.1) -- P1 (10.0.0.11) -- P2 (10.0.0.12) -- PE2 (10.0.0.2) -- CE2 (192.168.2.2/30)
-                        |                                   |
-                       RR1 (10.0.0.101)                   RR2 (10.0.0.102)
-```
-
-| Node | Loopback0 | Link ke Tetangga |
-| --- | --- | --- |
-| PE1 | 10.0.0.1/32 | PE1-P1: 10.255.0.0/31 |
-| P1 | 10.0.0.11/32 | P1-P2: 10.255.0.2/31 |
-| P2 | 10.0.0.12/32 | P2-PE2: 10.255.0.4/31 |
-| PE2 | 10.0.0.2/32 | PE2-P2: 10.255.0.4/31 |
-| RR1 | 10.0.0.101/32 | RR di lokasi 1 |
-| RR2 | 10.0.0.102/32 | RR di lokasi 2 |
-
----
-
-## Bab 1: Arsitektur IOS-XR dan Matriks Platform
+## Modul 1: Architecture IOS-XR dan Matrix Platform
 
 ### 1.1 Kenapa IOS-XR Beda dari IOS dan IOS-XE
 
 IOS-XR bukan IOS yang diberi fitur baru. IOS-XR adalah OS yang ditulis ulang untuk carrier grade.
 
 - **Kernel:** Berbasis QNX microkernel, bukan monolitik. Satu proses yang crash tidak menjatuhkan seluruh OS.
-- **Model konfigurasi:** Two-stage commit. Konfigurasi diedit di target config, lalu di-commit secara atomik.
-- **Control plane terdistribusi:** Proses routing berjalan terpisah dan bisa di-restart tanpa reload chassis.
+- **Model configuration:** Two-stage commit. Configuration diedit di target config, lalu committed secara atomik.
+- **Control plane terdistribusi:** Proses routing berjalan terpisah dan dapat restarted tanpa reload chassis.
 - **Data plane terpisah:** Forwarding di line card tidak bergantung pada RP yang sedang restart, selama NSF dan NSR dirancang benar.
-- **Modularitas:** Setiap fitur adalah package. Anda bisa install, upgrade, dan rollback package tanpa reload penuh pada banyak platform.
+- **Modularitas:** Setiap fitur adalah package. Install, upgrade, dan rollback package dapat dilakukan tanpa reload penuh pada banyak platform.
 
 Anti-pattern yang paling sering ditemui dari engineer IOS: mengetik `write memory`, `copy running-config startup-config`, atau `ip address`. Di IOS-XR, tidak ada konsep startup-config seperti itu. Yang ada adalah committed config dan target config. Perintah yang benar adalah `commit`.
 
-### 1.2 Arsitektur Internal yang Wajib Dipahami Arsitek
+### 1.2 Architecture Internal yang Wajib Dipahami Arsitek
 
-| Komponen | Fungsi | Dampak Desain |
+| Komponen | Fungsi | Dampak Design |
 | --- | --- | --- |
-| SysDB | Database konfigurasi dan state terpusat | Semua proses membaca dari satu sumber kebenaran |
-| RIB dan FIB | RIB di control plane, FIB diprogram ke hardware | RIB yang besar belum tentu berarti FIB bermasalah, cek keduanya |
-| Process Manager | Mengelola lifecycle proses IOS-XR | Proses BGP atau OSPF bisa di-restart mandiri |
-| XR Control Plane | Berjalan di RP atau RSP | Gangguan RP tidak langsung mematikan forwarding jika NSF aktif |
-| Sysadmin Plane | Manajemen chassis, power, fabric, pada NCS 5500 dan ASR 9000 generasi baru | Upgrade dan diagnosa hardware dilakukan dari plane ini |
+| SysDB | Database configuration dan state terpusat | Semua proses membaca dari satu source of truth |
+| RIB dan FIB | RIB di control plane, FIB diprogram ke hardware | RIB yang besar belum tentu berarti FIB bermasalah, periksa keduanya |
+| Process Manager | Mengelola lifecycle proses IOS-XR | Proses BGP atau OSPF dapat restarted mandiri |
+| XR Control Plane | Berjalan di RP atau RSP | Disruption RP tidak langsung mematikan forwarding jika NSF aktif |
+| Sysadmin Plane | Management chassis, power, fabric, pada NCS 5500 dan ASR 9000 generasi baru | Upgrade dan diagnosa hardware dilakukan dari plane ini |
 
-Prinsip arsitek: jangan pernah mendesain core yang bergantung pada satu RP, satu link, atau satu RR. IOS-XR memberi alat untuk redundancy, tetapi arsitek yang harus mengaktifkannya.
+Prinsip arsitek: jangan pernah mendesain core yang bergantung pada satu RP, satu link, atau satu RR. IOS-XR memberikan alat untuk redundancy, tetapi arsitek yang harus mengaktifkannya.
 
-### 1.3 Matriks Platform
+### 1.3 Matrix Platform
 
 | Platform | Chipset dan Peran | Cocok Untuk | Catatan Arsitek |
 | --- | --- | --- | --- |
 | ASR 9000 | Typhoon, Tomahawk, Lightspeed. Core dan edge besar | P, PE core, BNG, peering besar | Platform paling matang untuk L3VPN dan SR. Perhatikan generasi line card, karena kapabilitas SRv6 dan scale berbeda |
-| NCS 5500 | Jericho, Jericho2. Core dan aggregation padat | P, PE, DCI, peering | Padat, hemat daya, sangat kuat untuk SR-MPLS. Cek versi XR untuk fitur SRv6 |
+| NCS 5500 | Jericho, Jericho2. Core dan aggregation padat | P, PE, DCI, peering | Padat, hemat daya, sangat kuat untuk SR-MPLS. Periksa versi XR untuk fitur SRv6 |
 | NCS 540 | Jericho2 compact. Access dan aggregation | PE aggregation, pre-aggregation, 5G xHaul | Ideal sebagai PE di edge, bukan sebagai P core besar |
-| NCS 5700 | Jericho2C+, 800G. Core generasi baru | P, PE core 800G, DCI | Platform referensi untuk SRv6 dan 800G. Gunakan XR 24.x |
-| XRv 9000 | Virtual, control plane penuh | Lab, validasi, training, CI/CD | Data plane terbatas. Sangat akurat untuk validasi konfigurasi, BGP, dan SR control plane. Jangan dipakai untuk benchmark forwarding |
+| NCS 5700 | Jericho2C+, 800G. Core generasi baru | P, PE core 800G, DCI | Platform reference untuk SRv6 dan 800G. Gunakan XR 24.x |
+| XRv 9000 | Virtual, control plane penuh | Lab, validation, training, CI/CD | Data plane terbatas. Sangat akurat untuk validation configuration, BGP, dan SR control plane. Jangan dipakai untuk benchmark forwarding |
 
-Keputusan platform bukan soal harga per port saja. Pertanyaan arsitek: berapa skala RIB, FIB, label, VRF, dan BGP session yang dibutuhkan dalam 3 tahun. NCS 540 yang dipaksakan menjadi P core akan kehabisan skala lebih cepat daripada ASR 9000 atau NCS 5700.
+Keputusan platform bukan soal harga per port saja. Pertanyaan arsitek: berapa scale RIB, FIB, label, VRF, dan BGP session yang dibutuhkan dalam 3 tahun. NCS 540 yang dipaksakan menjadi P core akan kehabisan scale lebih cepat daripada ASR 9000 atau NCS 5700.
 
 ### 1.4 Versi IOS-XR dan Licensing
 
 - **ASR 9000:** Umumnya di train 7.x, contoh 7.8.2, 7.11.2. Stabil untuk L3VPN dan SR-MPLS.
 - **NCS 5500 dan NCS 540:** Train 7.x dan 24.x tergantung hardware.
 - **NCS 5700:** Train 24.x, contoh 24.1.1, 24.2.1, 24.4.1. Wajib untuk fitur SRv6 terbaru dan 800G.
-- **XRv 9000:** Ikuti train yang sama dengan target produksi agar validasi akurat.
+- **XRv 9000:** Ikuti train yang sama dengan target produksi agar validation akurat.
 
-Licensing di IOS-XR memakai model Essentials dan Advantage, plus add-on untuk fitur tertentu. Jangan asumsi semua fitur aktif. Sebelum desain SRv6 atau EVPN, verifikasi license di lab:
+Licensing di IOS-XR menggunakan model Essentials dan Advantage, plus add-on untuk fitur tertentu. Jangan asumsi semua fitur aktif. Sebelum design SRv6 atau EVPN, verification license di lab:
 
 ```
 show license all
@@ -94,18 +65,17 @@ show license usage
 show install active
 ```
 
-### 1.5 Prinsip Desain Core ISP
+### 1.5 Prinsip Design Core ISP
 
-- **Loopback adalah identitas router:** Semua peering iBGP, LDP, SR, dan management memakai Loopback0. Jangan pernah memakai IP interface fisik untuk iBGP atau LDP.
-- **IGP hanya untuk infrastruktur:** IGP hanya mengiklankan Loopback dan link point-to-point. Prefix customer tidak pernah masuk IGP.
-- **BGP adalah satu-satunya pembawa layanan:** Semua layanan customer dibawa BGP, baik VPNv4, VPNv6, maupun EVPN.
+- **Loopback adalah identitas router:** Semua peering iBGP, LDP, SR, dan management menggunakan Loopback0. Jangan pernah menggunakan IP interface fisik untuk iBGP atau LDP.
+- **IGP hanya untuk infrastructure:** IGP hanya mengiklankan Loopback dan link point-to-point. Prefix customer tidak pernah masuk IGP.
+- **BGP adalah satu-satunya pembawa service:** Semua service customer dibawa BGP, baik VPNv4, VPNv6, maupun EVPN.
 - **Hierarki RR:** PE hanya peer ke RR, bukan full mesh. RR berpasangan dan ditempatkan di lokasi yang berbeda.
-- **Simetri dan determinisme:** Topologi, metric, dan policy harus simetris agar troubleshooting bisa diprediksi.
-- **Satu perubahan, satu commit:** Setiap commit harus punya label dan comment yang jelas.
+- **Simetri dan determinisme:** Topology, metric, dan policy harus simetris agar troubleshooting dapat diprediksi.
+- **Satu perubahan, satu commit:** Setiap commit harus memiliki label dan comment yang jelas.
 
----
 
-## Bab 2: Workflow Konfigurasi, Commit 2-Stage, Rollback, dan Operasional
+## Modul 2: Workflow Configuration, Commit 2-Stage, Rollback, dan Operasional
 
 ### 2.1 Dua Mode yang Harus Dikuasai
 
@@ -127,14 +97,14 @@ RP/0/RP0/CPU0:PE1(config-if)# end
 
 ### 2.2 Siklus Commit 2-Stage
 
-1. **Edit:** Anda mengetik konfigurasi. Ini baru masuk target config, belum aktif.
-2. **Validasi:** Saat `commit`, IOS-XR memvalidasi sintaks, dependensi, dan semantic. Jika gagal, commit ditolak dan tidak ada perubahan parsial.
+1. **Edit:** Configuration diketik dan baru masuk target config, belum aktif.
+2. **Validation:** Saat `commit`, IOS-XR memvalidasi sintaks, dependensi, dan semantic. Jika gagal, commit ditolak dan tidak ada perubahan parsial.
 3. **Commit:** Jika valid, target config menjadi running config secara atomik.
-4. **Audit:** Setiap commit punya ID, label, comment, dan user.
+4. **Audit:** Setiap commit memiliki ID, label, comment, dan user.
 
 | Perintah | Fungsi |
 | --- | --- |
-| show configuration | Melihat perubahan yang belum di-commit |
+| show configuration | Melihat perubahan yang belum committed |
 | show configuration commit changes last 1 | Melihat diff commit terakhir |
 | show configuration commit list | Melihat daftar commit, ID, user, dan waktu |
 | show configuration history | Melihat histori commit lengkap |
@@ -146,7 +116,7 @@ RP/0/RP0/CPU0:PE1(config-if)# end
 | commit replace | Ganti running config dengan target config secara penuh |
 | rollback configuration last 1 | Kembali ke 1 commit sebelumnya, lalu `commit` |
 | rollback configuration to <COMMIT-ID> | Kembali ke commit ID tertentu |
-| abort | Buang semua perubahan yang belum di-commit |
+| abort | Hapus semua perubahan yang belum committed |
 
 ### 2.3 Contoh Workflow yang Benar
 
@@ -162,7 +132,7 @@ commit label LOOPBACK-PE1 comment Tambah Loopback PE1 untuk BGP dan LDP
 end
 ```
 
-**Contoh 2: Cek diff sebelum commit**
+**Contoh 2: Periksa diff sebelum commit**
 
 ```
 configure
@@ -184,7 +154,7 @@ interface HundredGigE0/0/0/0
 commit confirmed 5
 ```
 
-Jika masih bisa akses setelah 5 menit, konfirmasi dengan `commit`. Jika kehilangan akses, router akan rollback otomatis setelah 5 menit.
+Jika masih dapat access setelah 5 menit, konfirmasi dengan `commit`. Jika kehilangan access, router akan rollback otomatis setelah 5 menit.
 
 **Contoh 4: Rollback**
 
@@ -207,11 +177,11 @@ commit replace label RESTORE-GOLDEN
 ### 2.4 Praktik Terbaik Operasi Carrier Grade
 
 - **Satu commit untuk satu tujuan:** Jangan campur perubahan OSPF, BGP, dan VRF dalam satu commit.
-- **Selalu pakai label dan comment:** Format yang disarankan: `commit label CHG-1234-OSPF comment CHG 1234 tambah interface P1 ke OSPF area 0`.
-- **Cek diff sebelum commit:** `show configuration` adalah kebiasaan non-negosiasi.
-- **Jangan pakai `commit` di jam sibuk tanpa `commit confirmed`:** Untuk perubahan core, selalu ada jendela rollback.
-- **Gunakan `configure exclusive` untuk perubahan kritis:** Ini mengunci konfigurasi agar tidak ada engineer lain yang mengedit bersamaan.
-- **Backup otomatis:** Setiap commit sebaiknya di-backup ke server.
+- **Selalu gunakan label dan comment:** Format yang disarankan: `commit label CHG-1234-OSPF comment CHG 1234 tambah interface P1 ke OSPF area 0`.
+- **Periksa diff sebelum commit:** `show configuration` adalah kebiasaan non-negosiasi.
+- **Jangan gunakan `commit` di jam sibuk tanpa `commit confirmed`:** Untuk perubahan core, selalu ada jendela rollback.
+- **Gunakan `configure exclusive` untuk perubahan kritis:** Ini mengunci configuration agar tidak ada engineer lain yang mengedit bersamaan.
+- **Backup otomatis:** Setiap commit sebaiknya backed up ke server.
 
 ### 2.5 File, Log, dan Diagnosa Dasar
 
@@ -231,13 +201,12 @@ show processes ospf
 
 ### 2.6 Lab XRv 9000
 
-Semua konfigurasi di guide ini bisa divalidasi di XRv 9000. Topologi lab minimal: CE1 - PE1 - P1 - P2 - PE2 - CE2, dengan RR1 dan RR2. Gunakan RAM minimal 8 GB per node untuk BGP dan SR. Jangan validasi scale 10.000 VRF di XRv 9000, validasi logika dan sintaksnya saja.
+Semua configuration di guide ini dapat divalidasi di XRv 9000. Topology lab minimal: CE1 - PE1 - P1 - P2 - PE2 - CE2, dengan RR1 dan RR2. Gunakan RAM minimal 8 GB per node untuk BGP dan SR. Jangan validation scale 10.000 VRF di XRv 9000, validation logika dan sintaksnya saja.
 
----
 
-## Bab 3: Fondasi Transport, IGP, MPLS LDP, dan BGP Labeled Unicast
+## Modul 3: Fondasi Transport, IGP, MPLS LDP, dan BGP Labeled Unicast
 
-### 3.1 Desain Addressing
+### 3.1 Design Addressing
 
 Gunakan /31 untuk link point-to-point agar hemat IP dan konsisten. Untuk link yang mungkin berubah menjadi multi-access, gunakan /30.
 
@@ -246,14 +215,14 @@ Gunakan /31 untuk link point-to-point agar hemat IP dan konsisten. Untuk link ya
 | Kriteria | OSPF | IS-IS |
 | --- | --- | --- |
 | Popularitas di ISP | Sangat umum, mudah direkrut engineer | Sangat umum di Tier-1, lebih scalable |
-| Skala dan stabilitas | Baik sampai ribuan node dengan desain area benar | Lebih baik untuk skala sangat besar, flooding lebih efisien |
+| Scale dan stabilitas | Baik sampai ribuan node dengan design area benar | Lebih baik untuk scale sangat besar, flooding lebih efisien |
 | Support SR | Penuh, SR-MPLS dan SRv6 | Penuh, SR-MPLS dan SRv6, sering jadi pilihan utama untuk SR |
-| Kemudahan troubleshooting | Mudah, banyak engineer paham | Butuh pemahaman TLV dan level |
-| Rekomendasi guide ini | Pakai OSPF jika tim sudah kuat OSPF dan skala menengah | Pakai IS-IS jika target adalah Tier-1, skala besar, dan SRv6 jangka panjang |
+| Kemudahan troubleshooting | Mudah, banyak engineer paham | Membutuhkan pemahaman TLV dan level |
+| Rekomendasi guide ini | Gunakan OSPF jika tim sudah kuat OSPF dan scale menengah | Gunakan IS-IS jika target adalah Tier-1, scale besar, dan SRv6 jangka panjang |
 
-Guide ini memakai OSPF untuk Bab 3 agar mudah diikuti, lalu IS-IS diberikan sebagai alternatif yang setara. Prinsipnya sama: IGP hanya untuk Loopback dan link core.
+Guide ini menggunakan OSPF untuk Modul 3 agar mudah diikuti, lalu IS-IS diberikan sebagai alternatif yang setara. Prinsipnya sama: IGP hanya untuk Loopback dan link core.
 
-### 3.3 OSPF di IOS-XR, Konfigurasi Lengkap PE1
+### 3.3 OSPF di IOS-XR, Configuration Lengkap PE1
 
 ```
 configure
@@ -274,15 +243,15 @@ router ospf 100
  timers throttle spf 50 100 5000
  timers throttle lsa all 50 100 5000
  area 0
-  interface Loopback0
-   passive enable
-  !
-  interface HundredGigE0/0/0/0
-   network point-to-point
-   hello-interval 3
-   dead-interval 9
-   bfd fast-detect
-  !
+ interface Loopback0
+ passive enable
+ !
+ interface HundredGigE0/0/0/0
+ network point-to-point
+ hello-interval 3
+ dead-interval 9
+ bfd fast-detect
+ !
  !
 !
 commit label OSPF-PE1 comment Aktifkan OSPF area 0 PE1
@@ -295,10 +264,10 @@ Penjelasan keputusan:
 - **nsr dan nsf cisco:** Untuk non-stop routing saat RP switchover. Wajib di core.
 - **passive enable di Loopback0:** Loopback diiklankan, tetapi tidak mengirim hello.
 - **network point-to-point:** Menghindari DR dan BDR di link point-to-point. Konvergensi lebih cepat.
-- **hello 3, dead 9:** Lebih cepat dari default 10 dan 40, tetapi masih aman. Gabungkan dengan BFD untuk deteksi sub-detik.
-- **bfd fast-detect:** Deteksi kegagalan link dalam ratusan milidetik.
+- **hello 3, dead 9:** Lebih cepat dari default 10 dan 40, tetapi masih aman. Gabungkan dengan BFD untuk detection sub-detik.
+- **bfd fast-detect:** Detection failure link dalam ratusan milidetik.
 
-Konfigurasi Bundle-Ether untuk core yang memakai LAG:
+Configuration Bundle-Ether untuk core yang menggunakan LAG:
 
 ```
 configure
@@ -316,12 +285,12 @@ interface HundredGigE0/0/0/1
 !
 router ospf 100
  area 0
-  interface Bundle-Ether1
-   network point-to-point
-   hello-interval 3
-   dead-interval 9
-   bfd fast-detect
-  !
+ interface Bundle-Ether1
+ network point-to-point
+ hello-interval 3
+ dead-interval 9
+ bfd fast-detect
+ !
  !
 !
 commit
@@ -352,42 +321,42 @@ router isis CORE
  nsf cisco
  nsr
  address-family ipv4 unicast
-  metric-style wide
-  router-id 10.0.0.1
+ metric-style wide
+ router-id 10.0.0.1
  !
  address-family ipv6 unicast
-  metric-style wide
-  router-id 10.0.0.1
+ metric-style wide
+ router-id 10.0.0.1
  !
  interface Loopback0
-  passive
-  address-family ipv4 unicast
-  !
-  address-family ipv6 unicast
-  !
+ passive
+ address-family ipv4 unicast
+ !
+ address-family ipv6 unicast
+ !
  !
  interface HundredGigE0/0/0/0
-  point-to-point
-  hello-interval 3
-  hello-multiplier 3
-  bfd fast-detect ipv4
-  address-family ipv4 unicast
-   metric 10
-  !
-  address-family ipv6 unicast
-   metric 10
-  !
+ point-to-point
+ hello-interval 3
+ hello-multiplier 3
+ bfd fast-detect ipv4
+ address-family ipv4 unicast
+ metric 10
+ !
+ address-family ipv6 unicast
+ metric 10
+ !
  !
 !
 commit label ISIS-PE1 comment Aktifkan IS-IS Level 2 PE1
 end
 ```
 
-Keputusan arsitek untuk IS-IS: pakai `level-2-only` untuk core flat. Jangan campur Level-1 dan Level-2 kecuali Anda benar-benar butuh hierarki.
+Keputusan arsitek untuk IS-IS: gunakan `level-2-only` untuk core flat. Jangan campur Level-1 dan Level-2 kecuali hierarki benar-benar dibutuhkan.
 
 ### 3.5 MPLS LDP, Transport MPLS Klasik
 
-Konfigurasi LDP di PE1:
+Configuration LDP di PE1:
 
 ```
 configure
@@ -403,7 +372,7 @@ commit label LDP-PE1 comment Aktifkan MPLS LDP PE1
 end
 ```
 
-Konfigurasi LDP di P1:
+Configuration LDP di P1:
 
 ```
 configure
@@ -422,12 +391,12 @@ end
 ```
 
 - **router-id:** Harus sama dengan Loopback0 dan router-id OSPF atau IS-IS.
-- **session protection:** Menjaga sesi LDP tetap hidup meskipun interface utama down, selama masih ada path alternatif via IGP.
+- **session protection:** Menjaga session LDP tetap hidup meskipun interface utama down, selama masih ada path alternatif via IGP.
 - **graceful-restart dan nsr:** Menjaga label forwarding tetap berjalan saat control plane restart.
 
 ### 3.6 BGP Labeled Unicast, Jembatan ke Segment Routing
 
-BGP Labeled Unicast memakai BGP untuk distribusi label Loopback. Ini jembatan konseptual ke SR-MPLS.
+BGP Labeled Unicast menggunakan BGP untuk distribution label Loopback. Ini jembatan konseptual ke SR-MPLS.
 
 ```
 configure
@@ -438,23 +407,23 @@ end-policy
 router bgp 65000
  bgp router-id 10.0.0.1
  address-family ipv4 labeled-unicast
-  allocate-label all
+ allocate-label all
  !
  neighbor 10.0.0.101
-  remote-as 65000
-  description RR1
-  update-source Loopback0
-  address-family ipv4 labeled-unicast
-   route-policy PASS-ALL in
-   route-policy PASS-ALL out
-  !
+ remote-as 65000
+ description RR1
+ update-source Loopback0
+ address-family ipv4 labeled-unicast
+ route-policy PASS-ALL in
+ route-policy PASS-ALL out
+ !
  !
 !
 commit
 end
 ```
 
-Catatan penting IOS-XR: setiap neighbor BGP wajib punya `route-policy` in dan out. Tanpa route-policy, tidak ada route yang dipertukarkan. Di IOS-XR, default adalah deny.
+Catatan penting IOS-XR: setiap neighbor BGP wajib memiliki `route-policy` in dan out. Tanpa route-policy, tidak ada route yang dipertukarkan. Di IOS-XR, default adalah deny.
 
 ### 3.7 BFD dan Fast Convergence
 
@@ -466,18 +435,18 @@ bfd
 !
 router ospf 100
  area 0
-  interface HundredGigE0/0/0/0
-   bfd fast-detect
-  !
+ interface HundredGigE0/0/0/0
+ bfd fast-detect
+ !
  !
 !
 commit
 end
 ```
 
-Target desain: deteksi kegagalan link di bawah 1 detik, IGP reconverge di bawah 2 detik, dan FRR atau TI-LFA di bawah 50 milidetik untuk traffic yang diproteksi.
+Target design: detection failure link di bawah 1 detik, IGP reconverge di bawah 2 detik, dan FRR atau TI-LFA di bawah 50 milidetik untuk traffic yang diproteksi.
 
-### 3.8 Verifikasi Transport
+### 3.8 Verification Transport
 
 ```
 show ospf neighbor
@@ -492,42 +461,41 @@ ping 10.0.0.2 source Loopback0
 traceroute 10.0.0.2 source Loopback0
 ```
 
-Jika `show mpls forwarding` tidak menampilkan label untuk Loopback PE tujuan, jangan lanjut ke Bab 4. Perbaiki IGP dan LDP dulu.
+Jika `show mpls forwarding` tidak menampilkan label untuk Loopback PE tujuan, jangan lanjut ke Modul 4. Perbaiki IGP dan LDP dulu.
 
----
 
-## Bab 4: BGP Core, Route Reflector, dan MPLS L3VPN End to End
+## Modul 4: BGP Core, Route Reflector, dan MPLS L3VPN End to End
 
-### 4.1 Arsitektur BGP Core
+### 4.1 Architecture BGP Core
 
-Di ISP core, BGP punya dua peran yang harus dipisahkan:
+Di ISP core, BGP memiliki dua peran yang harus dipisahkan:
 
-- **BGP transport:** Mengiklankan Loopback jika memakai BGP-LU, atau tidak dipakai jika memakai LDP atau SR.
-- **BGP layanan:** Mengiklankan VPNv4, VPNv6, dan EVPN.
+- **BGP transport:** Mengiklankan Loopback jika menggunakan BGP-LU, atau tidak dipakai jika menggunakan LDP atau SR.
+- **BGP service:** Mengiklankan VPNv4, VPNv6, dan EVPN.
 
-PE tidak pernah peer langsung ke PE lain untuk layanan. PE hanya peer ke RR. RR hanya me-reflect route, tidak mem-forward traffic customer. RR harus redundant dan terpisah lokasi.
+PE tidak pernah peer langsung ke PE lain untuk service. PE hanya peer ke RR. RR hanya me-reflect route, tidak mem-forward traffic customer. RR harus redundant dan terpisah lokasi.
 
-Topologi BGP:
+Topology BGP:
 
 ```
 PE1 -- RR1 -- PE2
- |      |      |
+ | | |
 PE1 -- RR2 -- PE2
 ```
 
-Setiap PE punya 2 sesi iBGP ke RR1 dan RR2. RR1 dan RR2 peer satu sama lain. Tidak ada full mesh PE ke PE.
+Setiap PE memiliki 2 session iBGP ke RR1 dan RR2. RR1 dan RR2 peer satu sama lain. Tidak ada full mesh PE ke PE.
 
-### 4.2 Desain Route Reflector
+### 4.2 Design Route Reflector
 
 | Keputusan | Rekomendasi | Alasan |
 | --- | --- | --- |
-| Jumlah RR | 2 per cluster, di POP berbeda | Satu RR down tidak mematikan layanan |
+| Jumlah RR | 2 per cluster, di POP berbeda | Satu RR down tidak mematikan service |
 | Cluster ID | Berbeda untuk RR1 dan RR2 jika mereka bukan satu cluster | Mencegah loop dan mempermudah troubleshooting |
-| Lokasi RR | Di POP core, dekat P, bukan di PE edge | RR tidak butuh data plane besar, tetapi butuh konektivitas IGP yang stabil |
-| Jumlah PE per RR | 100 sampai 300 PE per pasang RR untuk desain awal | Di atas itu, buat cluster baru atau hierarki RR |
-| RR sebagai P atau standalone | Standalone lebih bersih untuk skala besar | RR standalone tidak terbebani forwarding traffic customer |
+| Lokasi RR | Di POP core, dekat P, bukan di PE edge | RR tidak membutuhkan data plane besar, tetapi membutuhkan konektivitas IGP yang stabil |
+| Jumlah PE per RR | 100 sampai 300 PE per pasang RR untuk design awal | Di atas itu, buat cluster baru atau hierarki RR |
+| RR sebagai P atau standalone | Standalone lebih bersih untuk scale besar | RR standalone tidak terbebani forwarding traffic customer |
 
-### 4.3 Konfigurasi BGP Core di PE1
+### 4.3 Configuration BGP Core di PE1
 
 ```
 configure
@@ -540,40 +508,40 @@ router bgp 65000
  bgp graceful-restart
  bgp bestpath as-path multipath-relax
  address-family ipv4 unicast
-  redistribute connected route-policy CONNECTED-TO-BGP
+ redistribute connected route-policy CONNECTED-TO-BGP
  !
  neighbor 10.0.0.101
-  remote-as 65000
-  description RR1-CORE
-  update-source Loopback0
-  address-family ipv4 unicast
-   route-policy PASS-ALL in
-   route-policy PASS-ALL out
-  !
-  address-family vpnv4 unicast
-   route-policy PASS-ALL in
-   route-policy PASS-ALL out
-  !
+ remote-as 65000
+ description RR1-CORE
+ update-source Loopback0
+ address-family ipv4 unicast
+ route-policy PASS-ALL in
+ route-policy PASS-ALL out
+ !
+ address-family vpnv4 unicast
+ route-policy PASS-ALL in
+ route-policy PASS-ALL out
+ !
  !
  neighbor 10.0.0.102
-  remote-as 65000
-  description RR2-CORE
-  update-source Loopback0
-  address-family ipv4 unicast
-   route-policy PASS-ALL in
-   route-policy PASS-ALL out
-  !
-  address-family vpnv4 unicast
-   route-policy PASS-ALL in
-   route-policy PASS-ALL out
-  !
+ remote-as 65000
+ description RR2-CORE
+ update-source Loopback0
+ address-family ipv4 unicast
+ route-policy PASS-ALL in
+ route-policy PASS-ALL out
+ !
+ address-family vpnv4 unicast
+ route-policy PASS-ALL in
+ route-policy PASS-ALL out
+ !
  !
 !
 commit label BGP-PE1 comment Aktifkan BGP PE1 ke RR1 dan RR2
 end
 ```
 
-Konfigurasi RR1:
+Configuration RR1:
 
 ```
 configure
@@ -590,50 +558,50 @@ router bgp 65000
  address-family vpnv4 unicast
  !
  neighbor 10.0.0.1
-  remote-as 65000
-  description PE1
-  update-source Loopback0
-  address-family ipv4 unicast
-   route-policy PASS-ALL in
-   route-policy PASS-ALL out
-  !
-  address-family vpnv4 unicast
-   route-policy PASS-ALL in
-   route-policy PASS-ALL out
-  !
+ remote-as 65000
+ description PE1
+ update-source Loopback0
+ address-family ipv4 unicast
+ route-policy PASS-ALL in
+ route-policy PASS-ALL out
+ !
+ address-family vpnv4 unicast
+ route-policy PASS-ALL in
+ route-policy PASS-ALL out
+ !
  !
  neighbor 10.0.0.2
-  remote-as 65000
-  description PE2
-  update-source Loopback0
-  address-family ipv4 unicast
-   route-policy PASS-ALL in
-   route-policy PASS-ALL out
-  !
-  address-family vpnv4 unicast
-   route-policy PASS-ALL in
-   route-policy PASS-ALL out
-  !
+ remote-as 65000
+ description PE2
+ update-source Loopback0
+ address-family ipv4 unicast
+ route-policy PASS-ALL in
+ route-policy PASS-ALL out
+ !
+ address-family vpnv4 unicast
+ route-policy PASS-ALL in
+ route-policy PASS-ALL out
+ !
  !
  neighbor 10.0.0.102
-  remote-as 65000
-  description RR2
-  update-source Loopback0
-  address-family ipv4 unicast
-   route-policy PASS-ALL in
-   route-policy PASS-ALL out
-  !
-  address-family vpnv4 unicast
-   route-policy PASS-ALL in
-   route-policy PASS-ALL out
-  !
+ remote-as 65000
+ description RR2
+ update-source Loopback0
+ address-family ipv4 unicast
+ route-policy PASS-ALL in
+ route-policy PASS-ALL out
+ !
+ address-family vpnv4 unicast
+ route-policy PASS-ALL in
+ route-policy PASS-ALL out
+ !
  !
 !
 commit label BGP-RR1 comment Aktifkan RR1
 end
 ```
 
-Di IOS-XR, RR aktif secara otomatis ketika neighbor adalah iBGP dan RR mengiklankan route yang dipelajari dari satu client ke client lain. Anda tidak perlu perintah `route-reflector-client` seperti di IOS. Yang membedakan RR dari PE biasa adalah `bgp cluster-id` dan desainnya sebagai RR.
+Di IOS-XR, RR aktif secara otomatis ketika neighbor adalah iBGP dan RR mengiklankan route yang dipelajari dari satu client ke client lain. Perintah `route-reflector-client` seperti di IOS tidak diperlukan. Yang membedakan RR dari PE biasa adalah `bgp cluster-id` dan desainnya sebagai RR.
 
 ### 4.4 Konsep RD, RT, dan VRF
 
@@ -649,7 +617,7 @@ Di IOS-XR, RR aktif secara otomatis ketika neighbor adalah iBGP dan RR mengiklan
 
 Gunakan RD yang unik per VRF per PE untuk troubleshooting yang mudah. Gunakan format AS:NN untuk RD dan RT.
 
-### 4.5 L3VPN End to End, Konfigurasi PE1
+### 4.5 L3VPN End to End, Configuration PE1
 
 Langkah 1: Buat VRF di PE1.
 
@@ -658,8 +626,8 @@ configure
 vrf CUSTOMER-A
  rd 65000:100
  address-family ipv4 unicast
-  import route-target 65000:100
-  export route-target 65000:100
+ import route-target 65000:100
+ export route-target 65000:100
  !
 !
 commit label VRF-CUSTOMER-A comment Buat VRF CUSTOMER-A
@@ -681,26 +649,26 @@ commit
 end
 ```
 
-Langkah 3: Konfigurasi BGP VRF untuk PE-CE dengan eBGP.
+Langkah 3: Configuration BGP VRF untuk PE-CE dengan eBGP.
 
 ```
 configure
 router bgp 65000
  vrf CUSTOMER-A
-  rd 65000:100
-  address-family ipv4 unicast
-   label mode per-vrf
-   redistribute connected
-   redistribute static
-  !
-  neighbor 192.168.1.2
-   remote-as 65001
-   description CE1-CUSTOMER-A
-   address-family ipv4 unicast
-    route-policy PASS-ALL in
-    route-policy PASS-ALL out
-   !
-  !
+ rd 65000:100
+ address-family ipv4 unicast
+ label mode per-vrf
+ redistribute connected
+ redistribute static
+ !
+ neighbor 192.168.1.2
+ remote-as 65001
+ description CE1-CUSTOMER-A
+ address-family ipv4 unicast
+ route-policy PASS-ALL in
+ route-policy PASS-ALL out
+ !
+ !
  !
 !
 commit label BGP-VRF-CUSTOMER-A comment Aktifkan BGP VRF CUSTOMER-A PE1
@@ -717,8 +685,8 @@ configure
 vrf CUSTOMER-A
  rd 65000:100
  address-family ipv4 unicast
-  import route-target 65000:100
-  export route-target 65000:100
+ import route-target 65000:100
+ export route-target 65000:100
  !
 !
 interface GigabitEthernet0/0/0/1
@@ -730,20 +698,20 @@ interface GigabitEthernet0/0/0/1
 !
 router bgp 65000
  vrf CUSTOMER-A
-  rd 65000:100
-  address-family ipv4 unicast
-   label mode per-vrf
-   redistribute connected
-   redistribute static
-  !
-  neighbor 192.168.2.2
-   remote-as 65002
-   description CE2-CUSTOMER-A
-   address-family ipv4 unicast
-    route-policy PASS-ALL in
-    route-policy PASS-ALL out
-   !
-  !
+ rd 65000:100
+ address-family ipv4 unicast
+ label mode per-vrf
+ redistribute connected
+ redistribute static
+ !
+ neighbor 192.168.2.2
+ remote-as 65002
+ description CE2-CUSTOMER-A
+ address-family ipv4 unicast
+ route-policy PASS-ALL in
+ route-policy PASS-ALL out
+ !
+ !
  !
 !
 commit label L3VPN-PE2 comment Aktifkan L3VPN CUSTOMER-A di PE2
@@ -758,16 +726,16 @@ end
 configure
 router static
  vrf CUSTOMER-A
-  address-family ipv4 unicast
-   192.168.10.0/24 192.168.1.2
-  !
+ address-family ipv4 unicast
+ 192.168.10.0/24 192.168.1.2
+ !
  !
 !
 router bgp 65000
  vrf CUSTOMER-A
-  address-family ipv4 unicast
-   redistribute static
-  !
+ address-family ipv4 unicast
+ redistribute static
+ !
  !
 !
 commit
@@ -780,32 +748,32 @@ end
 configure
 router ospf 200
  vrf CUSTOMER-A
-  router-id 192.168.1.1
-  area 0
-   interface GigabitEthernet0/0/0/1
-    network point-to-point
-   !
-  !
+ router-id 192.168.1.1
+ area 0
+ interface GigabitEthernet0/0/0/1
+ network point-to-point
+ !
+ !
  !
 !
 router bgp 65000
  vrf CUSTOMER-A
-  address-family ipv4 unicast
-   redistribute ospf 200
-  !
+ address-family ipv4 unicast
+ redistribute ospf 200
+ !
  !
 !
 commit
 end
 ```
 
-Perhatian: OSPF PE-CE harus memakai process ID yang berbeda dari OSPF core. Jangan pernah mencampur OSPF customer dengan OSPF core di process yang sama.
+Perhatian: OSPF PE-CE harus menggunakan process ID yang berbeda dari OSPF core. Jangan pernah mencampur OSPF customer dengan OSPF core di process yang sama.
 
 **Opsi 3: eBGP seperti contoh utama**
 
 Ini yang paling direkomendasikan untuk ISP karena isolasi, policy yang jelas, dan troubleshooting yang mudah.
 
-### 4.7 Verifikasi L3VPN
+### 4.7 Verification L3VPN
 
 Di PE1:
 
@@ -844,25 +812,24 @@ ping 192.168.2.2 source 192.168.1.2
 traceroute 192.168.2.2 source 192.168.1.2
 ```
 
-Urutan troubleshooting jika ping gagal: 1) Cek PE-CE, 2) Cek VPNv4 di PE1, 3) Cek RR, 4) Cek PE2 impor RT, 5) Cek LSP, 6) Cek CE2 return route.
+Urutan troubleshooting jika ping gagal: 1) Periksa PE-CE, 2) Periksa VPNv4 di PE1, 3) Periksa RR, 4) Periksa PE2 impor RT, 5) Periksa LSP, 6) Periksa CE2 return route.
 
 ### 4.8 Anti-Pattern L3VPN
 
 - **RT salah ketik:** Satu digit RT yang salah membuat route tidak pernah diimpor. Tidak ada error, hanya route yang hilang.
 - **RD sama untuk semua VRF:** Membuat troubleshooting sulit.
-- **VRF tidak di-assign ke interface:** Cek `show running-config interface GigabitEthernet0/0/0/1`.
+- **VRF tidak assigned ke interface:** Periksa `show running-config interface GigabitEthernet0/0/0/1`.
 - **Lupa route-policy di BGP:** Di IOS-XR, tanpa route-policy, BGP tidak akan bertukar route.
 - **Label mode tidak konsisten:** Standarkan per-vrf.
-- **Redistribute tanpa filter:** Selalu pakai route-policy dengan prefix-set yang jelas.
+- **Redistribute tanpa filter:** Selalu gunakan route-policy dengan prefix-set yang jelas.
 
----
 
-## Bab 5: Segment Routing MPLS, SR Policy, dan TI-LFA
+## Modul 5: Segment Routing MPLS, SR Policy, dan TI-LFA
 
 ### 5.1 Kenapa Tinggalkan LDP
 
-- **State per LSP:** Setiap router harus menjaga sesi LDP dan label binding untuk setiap FEC.
-- **Tidak ada Traffic Engineering native:** LDP selalu mengikuti IGP shortest path. Untuk TE, Anda harus menambah RSVP-TE yang stateful dan rumit.
+- **State per LSP:** Setiap router harus menjaga session LDP dan label binding untuk setiap FEC.
+- **Tidak ada Traffic Engineering native:** LDP selalu mengikuti IGP shortest path. Untuk TE, RSVP-TE yang stateful dan rumit perlu ditambahkan.
 - **Troubleshooting tidak deterministik:** Label LDP dialokasikan dinamis.
 
 Segment Routing membalik logika ini. Label bukan lagi dialokasikan per hop secara dinamis, tetapi dihitung dari SID yang deterministik.
@@ -884,12 +851,12 @@ Segment Routing membalik logika ini. Label bukan lagi dialokasikan per hop secar
 | RR1 | 10.0.0.101/32 | 101 | 16101 |
 | RR2 | 10.0.0.102/32 | 102 | 16102 |
 
-### 5.3 Desain SRGB dan Prefix SID
+### 5.3 Design SRGB dan Prefix SID
 
 - **SRGB harus direncanakan sekali dan tidak diubah.**
 - **Sisakan ruang untuk LDP selama migrasi.**
 - **Index harus unik dan terstruktur:** PE 1 sampai 99, P 11 sampai 99, RR 101 sampai 199.
-- **Jangan pakai index 0.**
+- **Jangan gunakan index 0.**
 
 ```
 configure
@@ -902,9 +869,9 @@ commit label SRGB-PE1 comment Set SRGB 16000 sampai 23999 PE1
 end
 ```
 
-### 5.4 Konfigurasi SR-MPLS dengan OSPF
+### 5.4 Configuration SR-MPLS dengan OSPF
 
-Konfigurasi PE1 dengan OSPF dan SR-MPLS:
+Configuration PE1 dengan OSPF dan SR-MPLS:
 
 ```
 configure
@@ -916,25 +883,25 @@ router ospf 100
  segment-routing mpls
  segment-routing forwarding mpls
  area 0
-  interface Loopback0
-   passive enable
-   prefix-sid index 1
-  !
-  interface HundredGigE0/0/0/0
-   network point-to-point
-   hello-interval 3
-   dead-interval 9
-   bfd fast-detect
-   fast-reroute per-prefix
-   fast-reroute per-prefix ti-lfa
-  !
+ interface Loopback0
+ passive enable
+ prefix-sid index 1
+ !
+ interface HundredGigE0/0/0/0
+ network point-to-point
+ hello-interval 3
+ dead-interval 9
+ bfd fast-detect
+ fast-reroute per-prefix
+ fast-reroute per-prefix ti-lfa
+ !
  !
 !
 commit label SR-MPLS-OSPF-PE1 comment Aktifkan SR-MPLS OSPF PE1
 end
 ```
 
-Konfigurasi P1:
+Configuration P1:
 
 ```
 configure
@@ -946,20 +913,20 @@ router ospf 100
  segment-routing mpls
  segment-routing forwarding mpls
  area 0
-  interface Loopback0
-   passive enable
-   prefix-sid index 11
-  !
-  interface HundredGigE0/0/0/0
-   network point-to-point
-   fast-reroute per-prefix
-   fast-reroute per-prefix ti-lfa
-  !
-  interface HundredGigE0/0/0/1
-   network point-to-point
-   fast-reroute per-prefix
-   fast-reroute per-prefix ti-lfa
-  !
+ interface Loopback0
+ passive enable
+ prefix-sid index 11
+ !
+ interface HundredGigE0/0/0/0
+ network point-to-point
+ fast-reroute per-prefix
+ fast-reroute per-prefix ti-lfa
+ !
+ interface HundredGigE0/0/0/1
+ network point-to-point
+ fast-reroute per-prefix
+ fast-reroute per-prefix ti-lfa
+ !
  !
 !
 commit label SR-MPLS-OSPF-P1 comment Aktifkan SR-MPLS OSPF P1
@@ -977,7 +944,7 @@ commit
 end
 ```
 
-### 5.5 Konfigurasi SR-MPLS dengan IS-IS
+### 5.5 Configuration SR-MPLS dengan IS-IS
 
 ```
 configure
@@ -989,23 +956,23 @@ router isis CORE
  net 49.0001.0000.0000.0001.00
  segment-routing mpls
  address-family ipv4 unicast
-  metric-style wide
-  segment-routing mpls
-  router-id 10.0.0.1
+ metric-style wide
+ segment-routing mpls
+ router-id 10.0.0.1
  !
  interface Loopback0
-  passive
-  address-family ipv4 unicast
-   prefix-sid index 1
-  !
+ passive
+ address-family ipv4 unicast
+ prefix-sid index 1
+ !
  !
  interface HundredGigE0/0/0/0
-  point-to-point
-  address-family ipv4 unicast
-   metric 10
-   fast-reroute per-prefix
-   fast-reroute per-prefix ti-lfa
-  !
+ point-to-point
+ address-family ipv4 unicast
+ metric 10
+ fast-reroute per-prefix
+ fast-reroute per-prefix ti-lfa
+ !
  !
 !
 commit label SR-MPLS-ISIS-PE1 comment Aktifkan SR-MPLS IS-IS PE1
@@ -1014,7 +981,7 @@ end
 
 ### 5.6 Adj-SID dan Anycast SID
 
-Adj-SID dipakai untuk SR Policy yang butuh steering per link. Di IOS-XR, Adj-SID dialokasikan otomatis dan bisa dilihat, tidak perlu dikonfigurasi manual untuk kasus dasar.
+Adj-SID dipakai untuk SR Policy yang membutuhkan steering per link. Di IOS-XR, Adj-SID dialokasikan otomatis dan dapat dilihat, tidak perlu dikonfigurasi manual untuk kasus dasar.
 
 Anycast SID dipakai untuk dua PE yang menjadi satu service anycast:
 
@@ -1022,10 +989,10 @@ Anycast SID dipakai untuk dua PE yang menjadi satu service anycast:
 configure
 router ospf 100
  area 0
-  interface Loopback1
-   passive enable
-   prefix-sid index 500
-  !
+ interface Loopback1
+ passive enable
+ prefix-sid index 500
+ !
  !
 !
 interface Loopback1
@@ -1051,18 +1018,18 @@ Contoh 1: SR Policy eksplisit dari PE1 ke PE2 lewat P1.
 configure
 segment-routing
  traffic-eng
-  segment-list SL-PE1-PE2-VIA-P1
-   index 10 mpls label 16011
-   index 20 mpls label 16002
-  !
-  policy POL-PE1-TO-PE2-100
-   color 100 end-point ipv4 10.0.0.2
-   candidate-paths
-    preference 100
-     explicit segment-list SL-PE1-PE2-VIA-P1
-    !
-   !
-  !
+ segment-list SL-PE1-PE2-VIA-P1
+ index 10 mpls label 16011
+ index 20 mpls label 16002
+ !
+ policy POL-PE1-TO-PE2-100
+ color 100 end-point ipv4 10.0.0.2
+ candidate-paths
+ preference 100
+ explicit segment-list SL-PE1-PE2-VIA-P1
+ !
+ !
+ !
  !
 !
 commit label SR-POLICY-PE1 comment Buat SR Policy PE1 ke PE2 color 100
@@ -1075,18 +1042,18 @@ Contoh 2: SR Policy dinamis dengan constraint IGP.
 configure
 segment-routing
  traffic-eng
-  policy POL-PE1-TO-PE2-200
-   color 200 end-point ipv4 10.0.0.2
-   candidate-paths
-    preference 100
-     dynamic
-      metric
-       type igp
-      !
-     !
-    !
-   !
-  !
+ policy POL-PE1-TO-PE2-200
+ color 200 end-point ipv4 10.0.0.2
+ candidate-paths
+ preference 100
+ dynamic
+ metric
+ type igp
+ !
+ !
+ !
+ !
+ !
  !
 !
 commit
@@ -1099,44 +1066,44 @@ Contoh 3: SR Policy untuk L3VPN, steering VRF tertentu ke policy tertentu.
 configure
 segment-routing
  traffic-eng
-  policy POL-CUSTOMER-A-LOWLAT
-   color 100 end-point ipv4 10.0.0.2
-   candidate-paths
-    preference 100
-     explicit segment-list SL-PE1-PE2-VIA-P1
-    !
-   !
-  !
+ policy POL-CUSTOMER-A-LOWLAT
+ color 100 end-point ipv4 10.0.0.2
+ candidate-paths
+ preference 100
+ explicit segment-list SL-PE1-PE2-VIA-P1
+ !
+ !
+ !
  !
 !
 router bgp 65000
  vrf CUSTOMER-A
-  address-family ipv4 unicast
-   segment-routing policy color 100
-  !
+ address-family ipv4 unicast
+ segment-routing policy color 100
+ !
  !
 !
 commit
 end
 ```
 
-Contoh 4: SR Policy dengan disjoint dan proteksi.
+Contoh 4: SR Policy dengan disjoint dan protection.
 
 ```
 configure
 segment-routing
  traffic-eng
-  policy POL-PE1-TO-PE2-DISJOINT
-   color 300 end-point ipv4 10.0.0.2
-   candidate-paths
-    preference 200
-     explicit segment-list SL-PE1-PE2-VIA-P1
-    !
-    preference 100
-     explicit segment-list SL-PE1-PE2-VIA-P2
-    !
-   !
-  !
+ policy POL-PE1-TO-PE2-DISJOINT
+ color 300 end-point ipv4 10.0.0.2
+ candidate-paths
+ preference 200
+ explicit segment-list SL-PE1-PE2-VIA-P1
+ !
+ preference 100
+ explicit segment-list SL-PE1-PE2-VIA-P2
+ !
+ !
+ !
  !
 !
 commit
@@ -1155,13 +1122,13 @@ show segment-routing traffic-eng policy
 show cef ipv4 10.0.0.2/32 detail
 ```
 
-Desain TI-LFA yang benar: topologi harus punya redundansi fisik, metric harus simetris, uji failover di lab dan ukur loss. Target: loss di bawah 50 milidetik untuk traffic yang diproteksi TI-LFA.
+Design TI-LFA yang benar: topology harus memiliki redundansi fisik, metric harus simetris, uji failover di lab dan ukur loss. Target: loss di bawah 50 milidetik untuk traffic yang diproteksi TI-LFA.
 
 ### 5.9 Migrasi LDP ke SR-MPLS Tanpa Downtime
 
 **Tahap 1:** Aktifkan SR berdampingan dengan LDP.
-**Tahap 2:** Aktifkan `sr-prefer`. Cek `show mpls forwarding` dan pastikan label yang dipakai sekarang adalah label SR.
-**Tahap 3:** Validasi L3VPN di atas SR.
+**Tahap 2:** Aktifkan `sr-prefer`. Periksa `show mpls forwarding` dan pastikan label yang dipakai sekarang adalah label SR.
+**Tahap 3:** Validation L3VPN di atas SR.
 **Tahap 4:** Nonaktifkan LDP per node, mulai dari P.
 
 ```
@@ -1172,9 +1139,9 @@ commit label REMOVE-LDP-P1 comment Nonaktifkan LDP P1 setelah SR stabil
 end
 ```
 
-**Tahap 5:** Bersihkan konfigurasi LDP dari template golden config setelah stabil satu minggu.
+**Tahap 5:** Bersihkan configuration LDP dari template golden config setelah stabil satu minggu.
 
-### 5.10 Verifikasi SR-MPLS
+### 5.10 Verification SR-MPLS
 
 ```
 show segment-routing mpls mapping-server
@@ -1188,24 +1155,23 @@ show bgp vpnv4 unicast summary
 ping vrf CUSTOMER-A 192.168.2.2 source 192.168.1.1
 ```
 
----
 
-## Bab 6: SRv6, Micro-SID, dan Migrasi dari SR-MPLS
+## Modul 6: SRv6, Micro-SID, dan Migrasi dari SR-MPLS
 
 ### 6.1 Kenapa SRv6
 
-- **Tidak ada MPLS di core:** Forwarding memakai IPv6 native.
-- **Programmability:** SID SRv6 bisa membawa fungsi, bukan hanya lokasi. Contoh: End.DT4 untuk decapsulasi ke VRF IPv4, End.DT6 untuk VRF IPv6, End.DX4 untuk cross-connect ke CE.
-- **Skala dan otomasi:** SRv6 terintegrasi dengan IPv6 dan bisa dipakai untuk network slicing dan 5G.
+- **Tidak ada MPLS di core:** Forwarding menggunakan IPv6 native.
+- **Programmability:** SID SRv6 dapat membawa fungsi, bukan hanya lokasi. Contoh: End.DT4 untuk decapsulasi ke VRF IPv4, End.DT6 untuk VRF IPv6, End.DX4 untuk cross-connect ke CE.
+- **Scale dan otomasi:** SRv6 terintegrasi dengan IPv6 dan dapat dipakai untuk network slicing dan 5G.
 - **Masa depan untuk NCS 5700 dan ASR 9000 generasi baru.**
 
-Keputusan arsitek: jangan migrasi ke SRv6 hanya karena tren. Migrasi ke SRv6 jika core sudah dual-stack IPv6, hardware sudah mendukung SRv6 di line rate, dan ada use case yang butuh programmability seperti network slicing atau 5G.
+Keputusan arsitek: jangan migrasi ke SRv6 hanya karena tren. Migrasi ke SRv6 jika core sudah dual-stack IPv6, hardware sudah mendukung SRv6 di line rate, dan ada use case yang membutuhkan programmability seperti network slicing atau 5G.
 
 ### 6.2 Konsep SRv6, uSID, dan Micro-SID
 
 - **SID SRv6:** Alamat IPv6 yang mewakili instruksi.
 - **Locator:** Prefix IPv6 yang menampung semua SID di sebuah domain. Contoh: 2001:db8:100::/48.
-- **uSID atau Micro-SID:** Kompresi SID. Satu alamat IPv6 128-bit bisa membawa beberapa Micro-SID 16-bit atau 32-bit.
+- **uSID atau Micro-SID:** Kompresi SID. Satu alamat IPv6 128-bit dapat membawa beberapa Micro-SID 16-bit atau 32-bit.
 - **Behavior:** Fungsi yang dijalankan saat SID diterima. Contoh: uN atau End, uDT4 atau End.DT4, uDT6 atau End.DT6, uDX4.
 
 | Bagian | Panjang | Contoh |
@@ -1222,12 +1188,12 @@ Keputusan arsitek: jangan migrasi ke SRv6 hanya karena tren. Migrasi ke SRv6 jik
 | P1 | 2001:db8:100:b:: | Menuju P1 |
 | P2 | 2001:db8:100:c:: | Menuju P2 |
 
-### 6.3 Desain Locator
+### 6.3 Design Locator
 
 - **Satu locator untuk satu domain:** Jangan buat locator per POP. Satu locator untuk seluruh SRv6 domain, misalnya 2001:db8:100::/48.
 - **Locator harus routable via IGP.**
 - **Pisahkan locator untuk fungsi yang berbeda jika perlu.**
-- **Alokasikan IPv6 core dengan benar:** Link core memakai /127, Loopback memakai /128, Locator memakai /48.
+- **Alokasikan IPv6 core dengan benar:** Link core menggunakan /127, Loopback menggunakan /128, Locator menggunakan /48.
 
 | Node | Loopback IPv6 | Locator SID |
 | --- | --- | --- |
@@ -1244,27 +1210,27 @@ Keputusan arsitek: jangan migrasi ke SRv6 hanya karena tren. Migrasi ke SRv6 jik
 | P1 ke P2 | 2001:db8:255::2/127 |
 | P2 ke PE2 | 2001:db8:255::4/127 |
 
-### 6.4 Konfigurasi SRv6 dengan IS-IS
+### 6.4 Configuration SRv6 dengan IS-IS
 
-Langkah 1: Konfigurasi locator SRv6 di PE1.
+Langkah 1: Configuration locator SRv6 di PE1.
 
 ```
 configure
 segment-routing
  srv6
-  locators
-   locator MAIN
-    micro-segment behavior unode psp-usd
-    prefix 2001:db8:100::/48
-   !
-  !
+ locators
+ locator MAIN
+ micro-segment behavior unode psp-usd
+ prefix 2001:db8:100::/48
+ !
+ !
  !
 !
 commit label SRV6-LOCATOR-PE1 comment Buat locator SRv6 MAIN PE1
 end
 ```
 
-`micro-segment behavior unode psp-usd` berarti locator ini memakai uSID dengan mode PSP dan USD.
+`micro-segment behavior unode psp-usd` berarti locator ini menggunakan uSID dengan mode PSP dan USD.
 
 Langkah 2: Aktifkan IPv6 di interface dan IS-IS SRv6.
 
@@ -1287,30 +1253,30 @@ router isis CORE
  is-type level-2-only
  net 49.0001.0000.0000.0001.00
  address-family ipv6 unicast
-  metric-style wide
-  segment-routing srv6
-   locator MAIN
-  !
+ metric-style wide
+ segment-routing srv6
+ locator MAIN
+ !
  !
  address-family ipv4 unicast
-  metric-style wide
-  router-id 10.0.0.1
+ metric-style wide
+ router-id 10.0.0.1
  !
  interface Loopback0
-  passive
-  address-family ipv6 unicast
-  !
-  address-family ipv4 unicast
-  !
+ passive
+ address-family ipv6 unicast
+ !
+ address-family ipv4 unicast
+ !
  !
  interface HundredGigE0/0/0/0
-  point-to-point
-  address-family ipv6 unicast
-   metric 10
-  !
-  address-family ipv4 unicast
-   metric 10
-  !
+ point-to-point
+ address-family ipv6 unicast
+ metric 10
+ !
+ address-family ipv4 unicast
+ metric 10
+ !
  !
 !
 commit label SRV6-ISIS-PE1 comment Aktifkan SRv6 IS-IS PE1
@@ -1323,49 +1289,49 @@ end
 configure
 segment-routing
  srv6
-  locators
-   locator MAIN
-    micro-segment behavior unode psp-usd
-    prefix 2001:db8:100::/48
-   !
-  !
+ locators
+ locator MAIN
+ micro-segment behavior unode psp-usd
+ prefix 2001:db8:100::/48
+ !
+ !
  !
 !
 router bgp 65000
  bgp router-id 10.0.0.1
  segment-routing srv6
-  locator MAIN
-  allocation mode per-vrf
+ locator MAIN
+ allocation mode per-vrf
  !
  neighbor 10.0.0.101
-  remote-as 65000
-  description RR1
-  update-source Loopback0
-  address-family vpnv4 unicast
-   route-policy PASS-ALL in
-   route-policy PASS-ALL out
-  !
-  address-family vpnv6 unicast
-   route-policy PASS-ALL in
-   route-policy PASS-ALL out
-  !
+ remote-as 65000
+ description RR1
+ update-source Loopback0
+ address-family vpnv4 unicast
+ route-policy PASS-ALL in
+ route-policy PASS-ALL out
+ !
+ address-family vpnv6 unicast
+ route-policy PASS-ALL in
+ route-policy PASS-ALL out
+ !
  !
  vrf CUSTOMER-A
-  rd 65000:100
-  address-family ipv4 unicast
-   segment-routing srv6
-    locator MAIN
-    alloc mode per-vrf
-   !
-   redistribute connected
-  !
-  address-family ipv6 unicast
-   segment-routing srv6
-    locator MAIN
-    alloc mode per-vrf
-   !
-   redistribute connected
-  !
+ rd 65000:100
+ address-family ipv4 unicast
+ segment-routing srv6
+ locator MAIN
+ alloc mode per-vrf
+ !
+ redistribute connected
+ !
+ address-family ipv6 unicast
+ segment-routing srv6
+ locator MAIN
+ alloc mode per-vrf
+ !
+ redistribute connected
+ !
  !
 !
 commit label SRV6-L3VPN-PE1 comment Aktifkan SRv6 L3VPN CUSTOMER-A PE1
@@ -1373,21 +1339,21 @@ end
 ```
 
 - **allocation mode per-vrf:** Satu SID SRv6 untuk seluruh VRF. SID ini akan menjadi End.DT4 untuk IPv4 dan End.DT6 untuk IPv6.
-- **segment-routing srv6 locator MAIN di BGP:** Memberi tahu BGP untuk mengalokasikan Service SID dari locator MAIN.
+- **segment-routing srv6 locator MAIN di BGP:** Memberikan tahu BGP untuk mengalokasikan Service SID dari locator MAIN.
 
-Konfigurasi VRF di PE1 tetap sama seperti Bab 4, hanya ditambah SRv6:
+Configuration VRF di PE1 tetap sama seperti Modul 4, hanya ditambah SRv6:
 
 ```
 configure
 vrf CUSTOMER-A
  rd 65000:100
  address-family ipv4 unicast
-  import route-target 65000:100
-  export route-target 65000:100
+ import route-target 65000:100
+ export route-target 65000:100
  !
  address-family ipv6 unicast
-  import route-target 65000:100
-  export route-target 65000:100
+ import route-target 65000:100
+ export route-target 65000:100
  !
 !
 commit
@@ -1400,21 +1366,21 @@ end
 configure
 router bgp 65000
  segment-routing srv6
-  locator MAIN
+ locator MAIN
  !
  neighbor 10.0.0.101
-  address-family l2vpn evpn
-   route-policy PASS-ALL in
-   route-policy PASS-ALL out
-  !
+ address-family l2vpn evpn
+ route-policy PASS-ALL in
+ route-policy PASS-ALL out
+ !
  !
  evpn
-  evi 100
-   bgp
-    route-target import 65000:100
-    route-target export 65000:100
-   !
-  !
+ evi 100
+ bgp
+ route-target import 65000:100
+ route-target export 65000:100
+ !
+ !
  !
 !
 commit
@@ -1427,20 +1393,20 @@ SR Policy SRv6:
 configure
 segment-routing
  traffic-eng
-  srv6
-   segment-list SL-SRV6-PE1-PE2
-    index 10 ipv6 address 2001:db8:100:b::
-    index 20 ipv6 address 2001:db8:100:2::
-   !
-   policy POL-SRV6-PE1-PE2
-    color 100 end-point ipv6 2001:db8::2
-    candidate-paths
-     preference 100
-      explicit segment-list SL-SRV6-PE1-PE2
-     !
-    !
-   !
-  !
+ srv6
+ segment-list SL-SRV6-PE1-PE2
+ index 10 ipv6 address 2001:db8:100:b::
+ index 20 ipv6 address 2001:db8:100:2::
+ !
+ policy POL-SRV6-PE1-PE2
+ color 100 end-point ipv6 2001:db8::2
+ candidate-paths
+ preference 100
+ explicit segment-list SL-SRV6-PE1-PE2
+ !
+ !
+ !
+ !
  !
 !
 commit
@@ -1455,7 +1421,7 @@ end
 **Tahap 4:** Migrasi SR Policy dari MPLS ke SRv6 per color.
 **Tahap 5:** Nonaktifkan SR-MPLS setelah semua VRF dan policy sudah di SRv6 dan stabil.
 
-### 6.8 Verifikasi SRv6
+### 6.8 Verification SRv6
 
 ```
 show segment-routing srv6 locator MAIN detail
@@ -1470,9 +1436,7 @@ ping vrf CUSTOMER-A 192.168.2.2 source 192.168.1.1
 ping vrf CUSTOMER-A 2001:db8:192:2::2 source 2001:db8:192:1::1
 ```
 
----
-
-## Bab 7: EVPN VPWS, VPLS, dan EVPN E-LAN
+## Modul 7: EVPN VPWS, VPLS, dan EVPN E-LAN
 
 ### 7.1 EVPN versus VPLS dan VPWS Klasik
 
@@ -1480,14 +1444,14 @@ EVPN menyelesaikan tiga masalah VPLS klasik dengan BGP sebagai control plane:
 
 - **MAC learning via BGP:** MAC address diiklankan via BGP EVPN Route Type 2.
 - **Multihoming native:** ESI memungkinkan dua PE melayani satu CE dengan All-Active atau Single-Active tanpa loop.
-- **Satu control plane untuk L2 dan L3:** EVPN yang sama bisa membawa L2 dan L3.
+- **Satu control plane untuk L2 dan L3:** EVPN yang sama dapat membawa L2 dan L3.
 
 | Aspek | VPLS LDP | VPWS LDP | EVPN |
 | --- | --- | --- | --- |
 | Control plane | LDP | LDP | BGP EVPN |
 | MAC learning | Data plane flood | Tidak ada MAC, point-to-point | BGP Route Type 2 |
-| Multihoming | Sulit, butuh MC-LAG | Sulit | Native via ESI |
-| Skala | Terbatas | Terbatas | Sangat scalable |
+| Multihoming | Sulit, membutuhkan MC-LAG | Sulit | Native via ESI |
+| Scale | Terbatas | Terbatas | Sangat scalable |
 | Interworking L3 | Sulit | Tidak ada | Native via RT-5 |
 
 ### 7.2 Konsep EVPN
@@ -1502,11 +1466,11 @@ EVPN menyelesaikan tiga masalah VPLS klasik dengan BGP sebagai control plane:
 | 2 | MAC dan IP Advertisement | Mengiklankan MAC dan IP host |
 | 3 | Inclusive Multicast | Untuk BUM traffic, broadcast, unknown unicast, multicast |
 | 4 | Ethernet Segment | Untuk Designated Forwarder election |
-| 5 | IP Prefix | Untuk EVPN L3VPN, dibahas di Bab 8 |
+| 5 | IP Prefix | Untuk EVPN L3VPN, dibahas di Modul 8 |
 
 ### 7.3 Fondasi BGP EVPN
 
-Konfigurasi di PE1:
+Configuration di PE1:
 
 ```
 configure
@@ -1517,30 +1481,30 @@ end-policy
 router bgp 65000
  bgp router-id 10.0.0.1
  neighbor 10.0.0.101
-  remote-as 65000
-  description RR1
-  update-source Loopback0
-  address-family l2vpn evpn
-   route-policy PASS-ALL in
-   route-policy PASS-ALL out
-  !
+ remote-as 65000
+ description RR1
+ update-source Loopback0
+ address-family l2vpn evpn
+ route-policy PASS-ALL in
+ route-policy PASS-ALL out
+ !
  !
  neighbor 10.0.0.102
-  remote-as 65000
-  description RR2
-  update-source Loopback0
-  address-family l2vpn evpn
-   route-policy PASS-ALL in
-   route-policy PASS-ALL out
-  !
+ remote-as 65000
+ description RR2
+ update-source Loopback0
+ address-family l2vpn evpn
+ route-policy PASS-ALL in
+ route-policy PASS-ALL out
+ !
  !
 !
 evpn
  evi 100
-  bgp
-   route-target import 65000:100
-   route-target export 65000:100
-  !
+ bgp
+ route-target import 65000:100
+ route-target export 65000:100
+ !
  !
 !
 commit label EVPN-BGP-PE1 comment Aktifkan BGP EVPN PE1
@@ -1549,7 +1513,7 @@ end
 
 ### 7.4 EVPN VPWS, Point-to-Point L2
 
-Konfigurasi di PE1:
+Configuration di PE1:
 
 ```
 configure
@@ -1561,25 +1525,25 @@ interface GigabitEthernet0/0/0/2
 !
 l2vpn
  xconnect group VPWS-CUSTOMER-A
-  p2p VPWS-100
-   interface GigabitEthernet0/0/0/2
-   neighbor evpn evi 100 target 1 source 1
-  !
+ p2p VPWS-100
+ interface GigabitEthernet0/0/0/2
+ neighbor evpn evi 100 target 1 source 1
+ !
  !
 !
 evpn
  evi 100
-  bgp
-   route-target import 65000:100
-   route-target export 65000:100
-  !
+ bgp
+ route-target import 65000:100
+ route-target export 65000:100
+ !
  !
 !
 commit label EVPN-VPWS-PE1 comment Aktifkan EVPN VPWS PE1
 end
 ```
 
-Konfigurasi di PE2:
+Configuration di PE2:
 
 ```
 configure
@@ -1591,25 +1555,25 @@ interface GigabitEthernet0/0/0/2
 !
 l2vpn
  xconnect group VPWS-CUSTOMER-A
-  p2p VPWS-100
-   interface GigabitEthernet0/0/0/2
-   neighbor evpn evi 100 target 2 source 2
-  !
+ p2p VPWS-100
+ interface GigabitEthernet0/0/0/2
+ neighbor evpn evi 100 target 2 source 2
+ !
  !
 !
 evpn
  evi 100
-  bgp
-   route-target import 65000:100
-   route-target export 65000:100
-  !
+ bgp
+ route-target import 65000:100
+ route-target export 65000:100
+ !
  !
 !
 commit label EVPN-VPWS-PE2 comment Aktifkan EVPN VPWS PE2
 end
 ```
 
-Verifikasi VPWS:
+Verification VPWS:
 
 ```
 show l2vpn xconnect group VPWS-CUSTOMER-A
@@ -1620,7 +1584,7 @@ show l2vpn xconnect detail
 
 ### 7.5 EVPN E-LAN, VPLS Modern
 
-Konfigurasi di PE1:
+Configuration di PE1:
 
 ```
 configure
@@ -1632,32 +1596,32 @@ interface GigabitEthernet0/0/0/3
 !
 l2vpn
  bridge group BG-CUSTOMER-A
-  bridge-domain BD-200
-   interface GigabitEthernet0/0/0/3
-   !
-   evi 200
-  !
+ bridge-domain BD-200
+ interface GigabitEthernet0/0/0/3
+ !
+ evi 200
+ !
  !
 !
 evpn
  evi 200
-  bgp
-   route-target import 65000:200
-   route-target export 65000:200
-  !
+ bgp
+ route-target import 65000:200
+ route-target export 65000:200
+ !
  !
 !
 commit label EVPN-ELAN-PE1 comment Aktifkan EVPN E-LAN PE1
 end
 ```
 
-Konfigurasi di PE2 sama, hanya interface dan CE yang berbeda, tetapi EVI dan bridge-domain sama.
+Configuration di PE2 sama, hanya interface dan CE yang berbeda, tetapi EVI dan bridge-domain sama.
 
 Perbedaan VPWS dan E-LAN: VPWS point-to-point, satu CE ke satu CE. E-LAN multipoint, banyak CE dalam satu bridge domain, MAC learning via BGP Route Type 2.
 
 ### 7.6 Multihoming ESI, Single-Active dan All-Active
 
-Konfigurasi ESI di PE1:
+Configuration ESI di PE1:
 
 ```
 configure
@@ -1669,43 +1633,43 @@ interface Bundle-Ether10
 !
 evpn
  interface Bundle-Ether10
-  ethernet-segment
-   identifier type 0 00.00.00.00.00.01.00.00.00.01
-   bgp route-target 65000:200
-  !
+ ethernet-segment
+ identifier type 0 00.00.00.00.00.01.00.00.00.01
+ bgp route-target 65000:200
+ !
  !
 !
 l2vpn
  bridge group BG-CUSTOMER-A
-  bridge-domain BD-200
-   interface Bundle-Ether10
-   !
-   evi 200
-  !
+ bridge-domain BD-200
+ interface Bundle-Ether10
+ !
+ evi 200
+ !
  !
 !
 commit label EVPN-ESI-PE1 comment Aktifkan ESI multihoming PE1
 end
 ```
 
-Konfigurasi di PE2 harus memakai ESI yang sama persis. Mode multihoming:
+Configuration di PE2 harus menggunakan ESI yang sama persis. Mode multihoming:
 
 - **Single-Active:** Hanya satu PE yang aktif forwarding untuk VLAN tertentu.
-- **All-Active:** Kedua PE aktif forwarding. Traffic di-load balance.
+- **All-Active:** Kedua PE aktif forwarding. Traffic load-balanced.
 
 ```
 evpn
  interface Bundle-Ether10
-  ethernet-segment
-   identifier type 0 00.00.00.00.00.01.00.00.00.01
-   bgp route-target 65000:200
-   load-balancing-mode all-active
-  !
+ ethernet-segment
+ identifier type 0 00.00.00.00.00.01.00.00.00.01
+ bgp route-target 65000:200
+ load-balancing-mode all-active
+ !
  !
 !
 ```
 
-Verifikasi ESI:
+Verification ESI:
 
 ```
 show evpn ethernet-segment
@@ -1728,28 +1692,28 @@ interface BVI200
 !
 l2vpn
  bridge group BG-CUSTOMER-A
-  bridge-domain BD-200
-   interface GigabitEthernet0/0/0/3
-   !
-   routed interface BVI200
-   evi 200
-  !
+ bridge-domain BD-200
+ interface GigabitEthernet0/0/0/3
+ !
+ routed interface BVI200
+ evi 200
+ !
  !
 !
 router bgp 65000
  vrf CUSTOMER-A
-  address-family ipv4 unicast
-   redistribute connected
-  !
+ address-family ipv4 unicast
+ redistribute connected
+ !
  !
 !
 commit label EVPN-IRB-PE1 comment Aktifkan IRB BVI200 PE1
 end
 ```
 
-Anycast Gateway berarti PE1 dan PE2 punya IP gateway yang sama untuk VLAN yang sama. CE tidak perlu tahu PE mana yang menjadi gateway.
+Anycast Gateway berarti PE1 dan PE2 memiliki IP gateway yang sama untuk VLAN yang sama. CE tidak perlu tahu PE mana yang menjadi gateway.
 
-### 7.8 Verifikasi EVPN
+### 7.8 Verification EVPN
 
 ```
 show evpn evi
@@ -1765,9 +1729,7 @@ show l2vpn forwarding bridge-domain BG-CUSTOMER-A:BD-200 mac-address location 0/
 show arp vrf CUSTOMER-A
 ```
 
----
-
-## Bab 8: EVPN L3VPN, Interworking L3VPN dan EVPN
+## Modul 8: EVPN L3VPN, Interworking L3VPN dan EVPN
 
 ### 8.1 EVPN L3VPN versus MPLS L3VPN
 
@@ -1775,95 +1737,95 @@ show arp vrf CUSTOMER-A
 | --- | --- | --- |
 | Address family | vpnv4 unicast, vpnv6 unicast | l2vpn evpn dengan Route Type 5 |
 | Prefix yang dibawa | Prefix IP | Prefix IP plus MAC dan gateway info |
-| Interworking dengan L2 | Butuh IRB terpisah | Native, satu EVPN untuk L2 dan L3 |
-| Skala | Sangat baik | Sangat baik, plus fleksibilitas DCI |
-| Use case utama | L3VPN klasik, ISP core | DCI, data center, dan core yang butuh L2 dan L3 dalam satu control plane |
+| Interworking dengan L2 | Membutuhkan IRB terpisah | Native, satu EVPN untuk L2 dan L3 |
+| Scale | Sangat baik | Sangat baik, plus fleksibilitas DCI |
+| Use case utama | L3VPN klasik, ISP core | DCI, data center, dan core yang membutuhkan L2 dan L3 dalam satu control plane |
 
-### 8.2 Arsitektur EVPN RT-5
+### 8.2 Architecture EVPN RT-5
 
 EVPN Route Type 5 membawa prefix IP seperti 192.168.10.0/24. Prefix ini diiklankan dari PE ke RR via BGP EVPN, sama seperti VPNv4, tetapi dengan informasi gateway dan MAC yang lebih kaya.
 
-### 8.3 Konfigurasi EVPN L3VPN
+### 8.3 Configuration EVPN L3VPN
 
-Konfigurasi EVPN L3VPN di PE1 untuk CUSTOMER-A:
+Configuration EVPN L3VPN di PE1 untuk CUSTOMER-A:
 
 ```
 configure
 vrf CUSTOMER-A
  rd 65000:100
  address-family ipv4 unicast
-  import route-target 65000:100
-  export route-target 65000:100
-  import route-target 65000:100 evpn
-  export route-target 65000:100 evpn
+ import route-target 65000:100
+ export route-target 65000:100
+ import route-target 65000:100 evpn
+ export route-target 65000:100 evpn
  !
  address-family ipv6 unicast
-  import route-target 65000:100
-  export route-target 65000:100
-  import route-target 65000:100 evpn
-  export route-target 65000:100 evpn
+ import route-target 65000:100
+ export route-target 65000:100
+ import route-target 65000:100 evpn
+ export route-target 65000:100 evpn
  !
 !
 router bgp 65000
  bgp router-id 10.0.0.1
  neighbor 10.0.0.101
-  address-family l2vpn evpn
-   route-policy PASS-ALL in
-   route-policy PASS-ALL out
-  !
+ address-family l2vpn evpn
+ route-policy PASS-ALL in
+ route-policy PASS-ALL out
+ !
  !
  vrf CUSTOMER-A
-  rd 65000:100
-  address-family ipv4 unicast
-   label mode per-vrf
-   redistribute connected
-   redistribute static
-  !
-  address-family ipv6 unicast
-   label mode per-vrf
-   redistribute connected
-  !
+ rd 65000:100
+ address-family ipv4 unicast
+ label mode per-vrf
+ redistribute connected
+ redistribute static
+ !
+ address-family ipv6 unicast
+ label mode per-vrf
+ redistribute connected
+ !
  !
 !
 evpn
  evi 100
-  bgp
-   route-target import 65000:100
-   route-target export 65000:100
-  !
+ bgp
+ route-target import 65000:100
+ route-target export 65000:100
+ !
  !
 !
 commit label EVPN-L3VPN-PE1 comment Aktifkan EVPN L3VPN CUSTOMER-A PE1
 end
 ```
 
-Penjelasan konfigurasi RT ganda:
+Penjelasan configuration RT ganda:
 
 - **import route-target 65000:100:** Untuk VPNv4, MPLS L3VPN klasik.
 - **import route-target 65000:100 evpn:** Untuk EVPN, Route Type 5.
 
-Dengan dua RT ini, PE1 bisa menerima prefix dari PE yang memakai VPNv4 maupun dari PE yang memakai EVPN.
+Dengan dua RT ini, PE1 dapat menerima prefix dari PE yang menggunakan VPNv4 maupun dari PE yang menggunakan EVPN.
 
-Konfigurasi di PE2 yang masih memakai MPLS L3VPN klasik tetap seperti Bab 4, tetapi tambahkan juga RT evpn:
+Configuration di PE2 yang masih menggunakan MPLS L3VPN klasik tetap seperti Modul 4, tetapi tambahkan juga RT evpn:
 
 ```
 configure
 vrf CUSTOMER-A
  rd 65000:100
  address-family ipv4 unicast
-  import route-target 65000:100
-  export route-target 65000:100
-  import route-target 65000:100 evpn
-  export route-target 65000:100 evpn
+ import route-target 65000:100
+ export route-target 65000:100
+ import route-target 65000:100 evpn
+ export route-target 65000:100 evpn
  !
 !
 router bgp 65000
  vrf CUSTOMER-A
-  rd 65000:100
-  address-family ipv4 unicast
-   label mode per-vrf
-   redistribute connected
-  !
+ rd 65000:100
+ address-family ipv4 unicast
+ label mode per-vrf
+ redistribute connected
+ !
  !
 !
 commit label INTERWORK-PE2 comment Tambah RT evpn di PE2 untuk interworking
@@ -1876,7 +1838,7 @@ Ada tiga pola interworking:
 
 **Pola 1: PE Dual-Stack, satu PE bicara dua bahasa**
 
-Satu PE mengiklankan prefix yang sama via VPNv4 dan via EVPN. PE lain bisa memilih salah satu.
+Satu PE mengiklankan prefix yang sama via VPNv4 dan via EVPN. PE lain dapat memilih salah satu.
 
 **Pola 2: RT Stitching di RR atau Border Leaf**
 
@@ -1884,7 +1846,7 @@ RR atau border leaf melakukan stitching: menerima VPNv4 dari satu sisi dan mengi
 
 **Pola 3: VRF Leaking antar VRF**
 
-VRF CUSTOMER-A di PE yang sama bisa leak ke VRF CUSTOMER-B via RT yang berbeda.
+VRF CUSTOMER-A di PE yang sama dapat leak ke VRF CUSTOMER-B via RT yang berbeda.
 
 Contoh VRF leaking untuk shared service:
 
@@ -1893,17 +1855,17 @@ configure
 vrf SHARED-SERVICE
  rd 65000:999
  address-family ipv4 unicast
-  import route-target 65000:100
-  import route-target 65000:200
-  export route-target 65000:999
+ import route-target 65000:100
+ import route-target 65000:200
+ export route-target 65000:999
  !
 !
 vrf CUSTOMER-A
  rd 65000:100
  address-family ipv4 unicast
-  import route-target 65000:100
-  import route-target 65000:999
-  export route-target 65000:100
+ import route-target 65000:100
+ import route-target 65000:999
+ export route-target 65000:100
  !
 !
 commit
@@ -1924,38 +1886,38 @@ Contoh eBGP EVPN antar AS:
 configure
 router bgp 65000
  neighbor 10.0.1.1
-  remote-as 65001
-  description PEER-AS-65001-DCI
-  update-source Loopback0
-  address-family l2vpn evpn
-   route-policy PASS-ALL in
-   route-policy PASS-ALL out
-  !
-  address-family vpnv4 unicast
-   route-policy PASS-ALL in
-   route-policy PASS-ALL out
-  !
+ remote-as 65001
+ description PEER-AS-65001-DCI
+ update-source Loopback0
+ address-family l2vpn evpn
+ route-policy PASS-ALL in
+ route-policy PASS-ALL out
+ !
+ address-family vpnv4 unicast
+ route-policy PASS-ALL in
+ route-policy PASS-ALL out
+ !
  !
 !
 commit
 end
 ```
 
-### 8.6 Desain RT untuk Interworking yang Bersih
+### 8.6 Design RT untuk Interworking yang Bersih
 
-- **Satu RT per service per customer:** Jangan pakai RT yang sama untuk CUSTOMER-A dan CUSTOMER-B.
+- **Satu RT per service per customer:** Jangan gunakan RT yang sama untuk CUSTOMER-A dan CUSTOMER-B.
 - **Pisahkan RT untuk L2 dan L3 jika perlu.**
-- **Dokumentasikan RT di IPAM:** RT harus dicatat di IPAM atau NMS, bukan hanya di konfigurasi router.
+- **Dokumentasikan RT di IPAM:** RT harus dicatat di IPAM atau NMS, bukan hanya di configuration router.
 - **Gunakan RT yang mudah dibaca:** Format AS:NN, misalnya 65000:100 untuk CUSTOMER-A, 65000:200 untuk CUSTOMER-B, 65000:999 untuk shared service.
 
 | Service | RT VPNv4 | RT EVPN | Keterangan |
 | --- | --- | --- | --- |
-| CUSTOMER-A L3VPN | 65000:100 | 65000:100 evpn | Bisa diakses via VPNv4 dan EVPN |
+| CUSTOMER-A L3VPN | 65000:100 | 65000:100 evpn | Dapat diakses via VPNv4 dan EVPN |
 | CUSTOMER-A VPWS | Tidak ada | 65000:100 | Hanya EVPN |
 | CUSTOMER-A E-LAN | Tidak ada | 65000:200 | Hanya EVPN |
-| SHARED-SERVICE | 65000:999 | 65000:999 evpn | Bisa diakses dari semua VRF |
+| SHARED-SERVICE | 65000:999 | 65000:999 evpn | Dapat diakses dari semua VRF |
 
-### 8.7 Verifikasi Interworking
+### 8.7 Verification Interworking
 
 Di PE EVPN:
 
@@ -1994,43 +1956,42 @@ ping vrf CUSTOMER-A 2001:db8:192:2::2 source 2001:db8:192:1::1
 
 ### 8.8 Anti-Pattern Interworking
 
-- **RT evpn lupa dikonfigurasi:** PE MPLS tidak akan menerima Route Type 5 jika tidak ada `import route-target ... evpn`.
+- **RT evpn lupa dikonfigurasi:** PE MPLS tidak akan menerima Route Type 5 jika tidak ada `import route-target... evpn`.
 - **RD berbeda tetapi RT sama:** RD boleh berbeda per PE, tetapi RT harus sama untuk service yang sama.
 - **BGP EVPN tidak aktif di RR:** RR yang hanya mengaktifkan VPNv4 tidak akan me-reflect EVPN.
 - **VRF leaking tanpa filter:** Leaking semua RT ke semua VRF membuat isolasi customer rusak.
-- **Mencampur EVI dan VRF secara acak:** Satu EVI harus punya satu RT yang jelas dan satu VRF yang jelas.
+- **Mencampur EVI dan VRF secara acak:** Satu EVI harus memiliki satu RT yang jelas dan satu VRF yang jelas.
 
----
 
-## Bab 9: Skala, High Availability, QoS Core, dan Security Control Plane
+## Modul 9: Scale, High Availability, QoS Core, dan Security Control Plane
 
-### 9.1 Skala dan Kapasitas Core
+### 9.1 Scale dan Capacity Core
 
-Skala bukan soal berapa banyak route yang bisa ditampung hari ini. Skala adalah soal berapa banyak route, VRF, label, SID, dan sesi BGP yang masih aman 3 tahun ke depan tanpa ganti hardware.
+Scale bukan soal berapa banyak route yang dapat ditampung hari ini. Scale adalah soal berapa banyak route, VRF, label, SID, dan session BGP yang masih aman 3 tahun ke depan tanpa ganti hardware.
 
-**Tiga skala yang harus dihitung terpisah:**
+**Tiga scale yang harus dihitung terpisah:**
 
 - **RIB scale:** Berapa banyak route di control plane, termasuk VPNv4, VPNv6, EVPN Route Type 2 dan Route Type 5.
 - **FIB scale:** Berapa banyak prefix yang diprogram ke hardware. FIB selalu lebih kecil dari RIB, dan FIB yang penuh lebih berbahaya dari RIB yang penuh.
 - **Label dan SID scale:** Berapa banyak label MPLS, Prefix SID, dan SID SRv6 yang dipakai. Label per-VRF jauh lebih hemat dari label per-prefix.
 
-| Platform | Peran | FIB IPv4 dan IPv6 | VRF | Sesi BGP | Catatan Arsitek |
+| Platform | Peran | FIB IPv4 dan IPv6 | VRF | Session BGP | Catatan Arsitek |
 | --- | --- | --- | --- | --- | --- |
 | ASR 9000 Tomahawk dan Lightspeed | P dan PE besar | 2 juta sampai 4 juta, tergantung line card | Ribuan | Ribuan | Paling aman untuk core dengan RIB besar dan banyak VRF |
-| NCS 5500 Jericho2 | P dan PE padat | 1 juta sampai 2 juta | Ribuan | Ribuan | Padat dan hemat daya, cek skala EVPN per line card |
-| NCS 5700 Jericho2C+ | P dan PE 800G | 2 juta ke atas | Ribuan | Ribuan | Referensi untuk SRv6 dan 800G, skala paling longgar |
+| NCS 5500 Jericho2 | P dan PE padat | 1 juta sampai 2 juta | Ribuan | Ribuan | Padat dan hemat daya, periksa scale EVPN per line card |
+| NCS 5700 Jericho2C+ | P dan PE 800G | 2 juta ke atas | Ribuan | Ribuan | Reference untuk SRv6 dan 800G, scale paling longgar |
 | NCS 540 Jericho2 compact | PE aggregation | Ratusan ribu | Ratusan | Ratusan | Jangan dipaksakan jadi P core besar, FIB akan penuh duluan |
-| XRv 9000 | Lab dan validasi | Terbatas, untuk logika | Puluhan | Puluhan | Untuk validasi sintaks dan BGP, bukan untuk benchmark skala |
+| XRv 9000 | Lab dan validation | Terbatas, untuk logika | Puluhan | Puluhan | Untuk validation sintaks dan BGP, bukan untuk benchmark scale |
 
-Prinsip desain skala:
+Prinsip design scale:
 
-- **Satu label per VRF, bukan per prefix:** Di Bab 4 dan Bab 6 kita sudah pakai `label mode per-vrf` dan `alloc mode per-vrf`.
-- **IGP hanya untuk infrastruktur:** Jika prefix customer masuk IGP, FIB IGP akan membengkak dan konvergensi melambat.
-- **Summarisasi di PE-CE:** Jangan terima prefix /32 yang tidak perlu dari CE. Pakai prefix-set dan route-policy untuk filter.
+- **Satu label per VRF, bukan per prefix:** Di Modul 4 dan Modul 6 telah digunakan `label mode per-vrf` dan `alloc mode per-vrf`.
+- **IGP hanya untuk infrastructure:** Jika prefix customer masuk IGP, FIB IGP akan membengkak dan konvergensi melambat.
+- **Summarisasi di PE-CE:** Jangan terima prefix /32 yang tidak perlu dari CE. Gunakan prefix-set dan route-policy untuk filter.
 - **Batasi jumlah VRF per PE:** VRF yang tidak dipakai tetap memakan memori dan proses.
 - **Pisahkan RR dari P:** RR yang juga menjadi P akan kehabisan CPU saat BGP churn dan forwarding bersamaan.
 
-Contoh filter prefix di PE agar skala tetap sehat:
+Contoh filter prefix di PE agar scale tetap sehat:
 
 ```
 configure
@@ -2041,28 +2002,28 @@ end-set
 !
 route-policy PE-CE-IN
  if destination in PE-CE-ALLOWED then
-  pass
+ pass
  else
-  drop
+ drop
  endif
 end-policy
 !
 router bgp 65000
  vrf CUSTOMER-A
-  neighbor 192.168.1.2
-   remote-as 65001
-   address-family ipv4 unicast
-    route-policy PE-CE-IN in
-    route-policy PASS-ALL out
-   !
-  !
+ neighbor 192.168.1.2
+ remote-as 65001
+ address-family ipv4 unicast
+ route-policy PE-CE-IN in
+ route-policy PASS-ALL out
+ !
+ !
  !
 !
 commit label SCALE-PE-CE comment Filter prefix PE-CE CUSTOMER-A
 end
 ```
 
-Verifikasi skala secara rutin:
+Verification scale secara rutin:
 
 ```
 show cef ipv4 summary
@@ -2096,7 +2057,7 @@ show controllers fabric plane all
 
 **Lapisan 2: Non-Stop Forwarding dan Non-Stop Routing**
 
-| Protokol | NSF | NSR | Konfigurasi di XR |
+| Protokol | NSF | NSR | Configuration di XR |
 | --- | --- | --- | --- |
 | OSPF | Ya, dengan `nsf cisco` | Ya, dengan `nsr` | `router ospf 100`, `nsf cisco`, `nsr` |
 | IS-IS | Ya, dengan `nsf cisco` | Ya, dengan `nsr` | `router isis CORE`, `nsf cisco`, `nsr` |
@@ -2105,7 +2066,7 @@ show controllers fabric plane all
 | SR-MPLS | Mengikuti IGP | Mengikuti IGP | Tidak ada NSF terpisah, ikut IGP |
 | SRv6 | Mengikuti IS-IS | Mengikuti IS-IS | Ikut IS-IS SRv6 |
 
-Konfigurasi HA lengkap di PE1:
+Configuration HA lengkap di PE1:
 
 ```
 configure
@@ -2148,11 +2109,11 @@ bfd
 !
 router ospf 100
  area 0
-  interface HundredGigE0/0/0/0
-   bfd fast-detect
-   fast-reroute per-prefix
-   fast-reroute per-prefix ti-lfa
-  !
+ interface HundredGigE0/0/0/0
+ bfd fast-detect
+ fast-reroute per-prefix
+ fast-reroute per-prefix ti-lfa
+ !
  !
 !
 commit label HA-BFD-TILFA comment Aktifkan BFD dan TI-LFA PE1
@@ -2173,11 +2134,11 @@ show install active
 
 Aturan operasi: selalu `install commit` setelah `install activate`. Uji SMU di XRv 9000 dulu, lalu di satu PE non-kritis, baru ke seluruh core. Jangan upgrade semua P dan PE dalam satu jendela.
 
-**Lapisan 5: Redundansi topologi**
+**Lapisan 5: Redundansi topology**
 
-Setiap PE punya minimal 2 uplink ke P yang berbeda. Setiap P punya minimal 2 path ke core. Setiap PE peer ke 2 RR di POP berbeda. Setiap link core punya backup path untuk TI-LFA.
+Setiap PE memiliki minimal 2 uplink ke P yang berbeda. Setiap P memiliki minimal 2 path ke core. Setiap PE peer ke 2 RR di POP berbeda. Setiap link core memiliki backup path untuk TI-LFA.
 
-Verifikasi HA:
+Verification HA:
 
 ```
 show redundancy
@@ -2192,7 +2153,7 @@ show logging last 100
 
 ### 9.3 QoS Core, DiffServ, MPLS EXP, dan H-QoS
 
-QoS core bukan soal membuat traffic cepat. QoS core adalah soal memastikan traffic yang penting tetap jalan saat core congested, dan traffic yang tidak penting yang dibuang duluan.
+QoS core bukan soal membuat traffic cepat. QoS core adalah soal memastikan traffic yang penting tetap berjalan saat core congested, dan traffic yang tidak penting yang dibuang duluan.
 
 | Traffic Class | DSCP | MPLS EXP dan Traffic Class | Contoh | Perlakuan |
 | --- | --- | --- | --- | --- |
@@ -2206,10 +2167,10 @@ Prinsip arsitek QoS:
 
 - **Trust di edge, bukan di core:** PE mengklasifikasikan dan menandai traffic dari CE. P hanya membaca EXP atau DSCP yang sudah ditandai.
 - **Jangan remark DSCP customer secara sembarangan.**
-- **MPLS EXP berasal dari Traffic Class:** Di IOS-XR, Anda set `traffic-class` dan `qos-group`, lalu IOS-XR memetakan ke EXP saat penambahan label MPLS.
+- **MPLS EXP berasal dari Traffic Class:** Di IOS-XR, `traffic-class` dan `qos-group` diatur, lalu IOS-XR memetakan ke EXP saat penambahan label MPLS.
 - **Egress queuing adalah tempat QoS benar-benar terjadi.**
 
-**Contoh 1: Class-map untuk klasifikasi**
+**Contoh 1: Class-map untuk classification**
 
 ```
 configure
@@ -2240,24 +2201,24 @@ end
 configure
 policy-map type qos INGRESS-PE-CE
  class CONTROL
-  set traffic-class 6
-  set qos-group 6
+ set traffic-class 6
+ set qos-group 6
  !
  class VOICE
-  set traffic-class 5
-  set qos-group 5
+ set traffic-class 5
+ set qos-group 5
  !
  class VIDEO
-  set traffic-class 4
-  set qos-group 4
+ set traffic-class 4
+ set qos-group 4
  !
  class BUSINESS
-  set traffic-class 3
-  set qos-group 3
+ set traffic-class 3
+ set qos-group 3
  !
  class class-default
-  set traffic-class 0
-  set qos-group 0
+ set traffic-class 0
+ set qos-group 0
  !
 !
 commit label QOS-INGRESS comment Buat policy ingress PE-CE
@@ -2270,25 +2231,25 @@ end
 configure
 policy-map type qos EGRESS-CORE
  class CONTROL
-  priority level 1
-  police rate 500 mbps
+ priority level 1
+ police rate 500 mbps
  !
  class VOICE
-  priority level 2
-  police rate 5 percent
+ priority level 2
+ police rate 5 percent
  !
  class VIDEO
-  bandwidth remaining percent 30
-  random-detect dscp-based
+ bandwidth remaining percent 30
+ random-detect dscp-based
  !
  class BUSINESS
-  bandwidth remaining percent 40
-  random-detect dscp-based
+ bandwidth remaining percent 40
+ random-detect dscp-based
  !
  class class-default
-  bandwidth remaining percent 20
-  random-detect
-  shape average 80 gbps
+ bandwidth remaining percent 20
+ random-detect
+ shape average 80 gbps
  !
 !
 commit label QOS-EGRESS comment Buat policy egress core
@@ -2297,8 +2258,8 @@ end
 
 Penjelasan:
 
-- **priority level 1 untuk CONTROL:** Traffic routing dan BFD tidak boleh antre. Jika CONTROL di-police terlalu rendah, OSPF dan BGP akan flapping saat congested.
-- **priority level 2 untuk VOICE:** Voice butuh latency rendah, tetapi jangan beri priority tanpa police.
+- **priority level 1 untuk CONTROL:** Traffic routing dan BFD tidak boleh queue. Jika CONTROL policed terlalu rendah, OSPF dan BGP akan flapping saat congested.
+- **priority level 2 untuk VOICE:** Voice membutuhkan latency rendah, tetapi jangan beri priority tanpa police.
 - **bandwidth remaining percent:** Membagi sisa bandwidth setelah priority class terpenuhi.
 - **random-detect:** WRED untuk TCP.
 
@@ -2325,24 +2286,24 @@ end
 configure
 policy-map type qos CHILD-CUSTOMER-A
  class BUSINESS
-  shape average 1 gbps
-  bandwidth remaining percent 60
+ shape average 1 gbps
+ bandwidth remaining percent 60
  !
  class class-default
-  shape average 1 gbps
+ shape average 1 gbps
  !
 !
 policy-map type qos PARENT-PORT
  class class-default
-  shape average 10 gbps
-  service-policy CHILD-CUSTOMER-A
+ shape average 10 gbps
+ service-policy CHILD-CUSTOMER-A
  !
 !
 commit label HQOS comment Buat H-QoS PE-CE
 end
 ```
 
-Verifikasi QoS:
+Verification QoS:
 
 ```
 show policy-map interface HundredGigE0/0/0/0 output
@@ -2356,13 +2317,13 @@ Jika `show policy-map interface` menampilkan drop di class CONTROL, itu adalah a
 
 ### 9.4 Security Control Plane, LPTS, BGP Security, dan RTBH
 
-Security core punya dua musuh: serangan dari luar yang membanjiri control plane, dan kesalahan konfigurasi dari dalam yang menyebarkan route yang salah.
+Security core memiliki dua musuh: attack dari luar yang membanjiri control plane, dan kesalahan configuration dari dalam yang menyebarkan route yang salah.
 
 **LPTS, pengganti CoPP di IOS-XR**
 
-Di IOS-XR, tidak ada CoPP seperti di IOS. Yang ada adalah LPTS atau Local Packet Transport Services. LPTS mengatur semua traffic yang ditujukan ke RP, termasuk BGP, OSPF, SSH, dan SNMP. Setiap jenis traffic punya policer sendiri, sehingga banjir BGP tidak bisa mematikan SSH.
+Di IOS-XR, tidak ada CoPP seperti di IOS. Yang ada adalah LPTS atau Local Packet Transport Services. LPTS mengatur semua traffic yang ditujukan ke RP, termasuk BGP, OSPF, SSH, dan SNMP. Setiap jenis traffic memiliki policer sendiri, sehingga banjir BGP tidak dapat mematikan SSH.
 
-Verifikasi LPTS:
+Verification LPTS:
 
 ```
 show lpts pifib hardware policer location 0/0/CPU0
@@ -2409,7 +2370,7 @@ commit label INFRA-ACL comment Aktifkan infrastructure ACL dan uRPF PE1
 end
 ```
 
-`ipv4 verify unicast source reachable-via rx` adalah uRPF strict di IOS-XR. Ini menolak packet dengan source IP yang tidak bisa kembali lewat interface yang sama.
+`ipv4 verify unicast source reachable-via rx` adalah uRPF strict di IOS-XR. Ini menolak packet dengan source IP yang tidak dapat kembali lewat interface yang sama.
 
 **BGP Security: Password, TTL, dan Max-Prefix**
 
@@ -2417,32 +2378,32 @@ end
 configure
 router bgp 65000
  neighbor 10.0.0.101
-  remote-as 65000
-  description RR1
-  password clear BGP-SECRET-RR1
-  ttl-security hops 1
-  update-source Loopback0
-  address-family ipv4 unicast
-   route-policy PASS-ALL in
-   route-policy PASS-ALL out
-   maximum-prefix 100000 80
-  !
-  address-family vpnv4 unicast
-   route-policy PASS-ALL in
-   route-policy PASS-ALL out
-   maximum-prefix 500000 80
-  !
+ remote-as 65000
+ description RR1
+ password clear BGP-SECRET-RR1
+ ttl-security hops 1
+ update-source Loopback0
+ address-family ipv4 unicast
+ route-policy PASS-ALL in
+ route-policy PASS-ALL out
+ maximum-prefix 100000 80
+ !
+ address-family vpnv4 unicast
+ route-policy PASS-ALL in
+ route-policy PASS-ALL out
+ maximum-prefix 500000 80
+ !
  !
  neighbor 192.168.1.2
-  remote-as 65001
-  description CE1-CUSTOMER-A
-  password clear BGP-SECRET-CE1
-  ttl-security hops 1
-  address-family ipv4 unicast
-   route-policy PE-CE-IN in
-   route-policy PASS-ALL out
-   maximum-prefix 1000 90
-  !
+ remote-as 65001
+ description CE1-CUSTOMER-A
+ password clear BGP-SECRET-CE1
+ ttl-security hops 1
+ address-family ipv4 unicast
+ route-policy PE-CE-IN in
+ route-policy PASS-ALL out
+ maximum-prefix 1000 90
+ !
  !
 !
 commit label BGP-SEC-PE1 comment Aktifkan BGP security PE1
@@ -2450,36 +2411,36 @@ end
 ```
 
 - **password:** MD5 untuk BGP.
-- **ttl-security hops 1:** GTSM. Packet BGP dari neighbor langsung harus punya TTL 255.
+- **ttl-security hops 1:** GTSM. Packet BGP dari neighbor langsung harus memiliki TTL 255.
 - **maximum-prefix:** Membatasi jumlah prefix yang diterima.
 
-**RPKI dan Validasi Origin**
+**RPKI dan Validation Origin**
 
 ```
 configure
 router bgp 65000
  rpki server 192.0.2.1
-  transport tcp port 3323
-  username rpki-user
-  password clear RPKI-SECRET
+ transport tcp port 3323
+ username rpki-user
+ password clear RPKI-SECRET
  !
  bgp origin-as validation signal ibgp
 !
 route-policy RPKI-CHECK
  if validation-state is invalid then
-  drop
+ drop
  elseif validation-state is valid then
-  pass
+ pass
  else
-  pass
+ pass
  endif
 end-policy
 !
 router bgp 65000
  neighbor 192.168.1.2
-  address-family ipv4 unicast
-   route-policy RPKI-CHECK in
-  !
+ address-family ipv4 unicast
+ route-policy RPKI-CHECK in
+ !
  !
 !
 commit label RPKI-PE1 comment Aktifkan RPKI PE1
@@ -2494,23 +2455,23 @@ Aturan RPKI di produksi: jangan langsung drop `unknown` atau `not-found`. Drop h
 configure
 route-policy RTBH-POLICY
  if community matches-any (65000:666) then
-  set next-hop 192.0.2.1
-  set local-preference 1000
+ set next-hop 192.0.2.1
+ set local-preference 1000
  else
-  pass
+ pass
  endif
 end-policy
 !
 router static
  address-family ipv4 unicast
-  192.0.2.1/32 Null0
+ 192.0.2.1/32 Null0
  !
 !
 router bgp 65000
  neighbor 10.0.0.101
-  address-family ipv4 unicast
-   route-policy RTBH-POLICY in
-  !
+ address-family ipv4 unicast
+ route-policy RTBH-POLICY in
+ !
  !
 !
 interface Null0
@@ -2525,12 +2486,12 @@ Flowspec:
 configure
 router bgp 65000
  address-family ipv4 flowspec
-  neighbor 10.0.0.101
-   address-family ipv4 flowspec
-    route-policy PASS-ALL in
-    route-policy PASS-ALL out
-   !
-  !
+ neighbor 10.0.0.101
+ address-family ipv4 flowspec
+ route-policy PASS-ALL in
+ route-policy PASS-ALL out
+ !
+ !
  !
 !
 commit label FLOWSPEC-PE1 comment Aktifkan Flowspec PE1
@@ -2560,7 +2521,7 @@ commit label MGMT-SEC comment Amankan management plane PE1
 end
 ```
 
-### 9.5 Desain Operasional untuk Core yang Tahan Gagal
+### 9.5 Design Operasional untuk Core yang Tahan Gagal
 
 - **Satu perubahan, satu commit, satu label.**
 - **Jendela maintenance untuk QoS dan LPTS:** Jangan ubah QoS egress dan LPTS di jam sibuk. Gunakan `commit confirmed`.
@@ -2568,18 +2529,10 @@ end
 - **Monitoring yang benar:** Monitor FIB usage, LPTS drop, QoS drop di class CONTROL, BGP prefix count, dan TI-LFA coverage.
 - **Latihan failover:** Setiap kuartal, matikan satu link, satu RP, dan satu RR di lab dan ukur loss.
 
-## Penutup
-
-Guide ini menutup di Bab 9. Fondasi Bab 1 sampai Bab 4 memberi Anda transport dan L3VPN yang sehat. Bab 5 dan Bab 6 memberi Anda SR-MPLS dan SRv6 sebagai transport modern. Bab 7 dan Bab 8 memberi Anda EVPN sebagai layanan L2 dan L3 modern. Bab 9 memberi Anda skala, HA, QoS, dan security agar core tidak hanya jalan, tetapi tahan di produksi.
-
-Gunakan XRv 9000 untuk validasi setiap bab sebelum diterapkan ke produksi. Satu commit yang salah di core lebih mahal dari satu minggu validasi di lab.
-
-
----
 
 ## Appendix A: Golden Config PE, P, dan RR
 
-Appendix ini adalah template siap pakai. Ganti hostname, Loopback, dan interface sesuai POP. Semua template sudah gabung Bab 1 sampai Bab 9.
+Appendix ini adalah template siap gunakan. Ganti hostname, Loopback, dan interface sesuai POP. Semua template telah digabungkan dari Modul 1 sampai Modul 9.
 
 ### A.1 Golden Config PE SR-MPLS
 
@@ -2592,10 +2545,10 @@ logging monitor disable
 vrf CUSTOMER-A
  rd 65000:100
  address-family ipv4 unicast
-  import route-target 65000:100
-  export route-target 65000:100
-  import route-target 65000:100 evpn
-  export route-target 65000:100 evpn
+ import route-target 65000:100
+ export route-target 65000:100
+ import route-target 65000:100 evpn
+ export route-target 65000:100 evpn
  !
 !
 interface Loopback0
@@ -2627,18 +2580,18 @@ router ospf 100
  segment-routing mpls
  segment-routing forwarding mpls
  area 0
-  interface Loopback0
-   passive enable
-   prefix-sid index 1
-  !
-  interface HundredGigE0/0/0/0
-   network point-to-point
-   hello-interval 3
-   dead-interval 9
-   bfd fast-detect
-   fast-reroute per-prefix
-   fast-reroute per-prefix ti-lfa
-  !
+ interface Loopback0
+ passive enable
+ prefix-sid index 1
+ !
+ interface HundredGigE0/0/0/0
+ network point-to-point
+ hello-interval 3
+ dead-interval 9
+ bfd fast-detect
+ fast-reroute per-prefix
+ fast-reroute per-prefix ti-lfa
+ !
  !
 !
 mpls ldp
@@ -2658,70 +2611,70 @@ router bgp 65000
  bgp graceful-restart
  nsr
  neighbor 10.0.0.101
-  remote-as 65000
-  description RR1
-  password clear BGP-SECRET-RR1
-  ttl-security hops 1
-  update-source Loopback0
-  address-family ipv4 unicast
-   route-policy PASS-ALL in
-   route-policy PASS-ALL out
-   maximum-prefix 100000 80
-  !
-  address-family vpnv4 unicast
-   route-policy PASS-ALL in
-   route-policy PASS-ALL out
-   maximum-prefix 500000 80
-  !
-  address-family l2vpn evpn
-   route-policy PASS-ALL in
-   route-policy PASS-ALL out
-  !
+ remote-as 65000
+ description RR1
+ password clear BGP-SECRET-RR1
+ ttl-security hops 1
+ update-source Loopback0
+ address-family ipv4 unicast
+ route-policy PASS-ALL in
+ route-policy PASS-ALL out
+ maximum-prefix 100000 80
+ !
+ address-family vpnv4 unicast
+ route-policy PASS-ALL in
+ route-policy PASS-ALL out
+ maximum-prefix 500000 80
+ !
+ address-family l2vpn evpn
+ route-policy PASS-ALL in
+ route-policy PASS-ALL out
+ !
  !
  neighbor 10.0.0.102
-  remote-as 65000
-  description RR2
-  password clear BGP-SECRET-RR2
-  ttl-security hops 1
-  update-source Loopback0
-  address-family ipv4 unicast
-   route-policy PASS-ALL in
-   route-policy PASS-ALL out
-  !
-  address-family vpnv4 unicast
-   route-policy PASS-ALL in
-   route-policy PASS-ALL out
-  !
-  address-family l2vpn evpn
-   route-policy PASS-ALL in
-   route-policy PASS-ALL out
-  !
+ remote-as 65000
+ description RR2
+ password clear BGP-SECRET-RR2
+ ttl-security hops 1
+ update-source Loopback0
+ address-family ipv4 unicast
+ route-policy PASS-ALL in
+ route-policy PASS-ALL out
+ !
+ address-family vpnv4 unicast
+ route-policy PASS-ALL in
+ route-policy PASS-ALL out
+ !
+ address-family l2vpn evpn
+ route-policy PASS-ALL in
+ route-policy PASS-ALL out
+ !
  !
  vrf CUSTOMER-A
-  rd 65000:100
-  address-family ipv4 unicast
-   label mode per-vrf
-   redistribute connected
-  !
-  neighbor 192.168.1.2
-   remote-as 65001
-   description CE1-CUSTOMER-A
-   password clear BGP-SECRET-CE1
-   ttl-security hops 1
-   address-family ipv4 unicast
-    route-policy PASS-ALL in
-    route-policy PASS-ALL out
-    maximum-prefix 1000 90
-   !
-  !
+ rd 65000:100
+ address-family ipv4 unicast
+ label mode per-vrf
+ redistribute connected
+ !
+ neighbor 192.168.1.2
+ remote-as 65001
+ description CE1-CUSTOMER-A
+ password clear BGP-SECRET-CE1
+ ttl-security hops 1
+ address-family ipv4 unicast
+ route-policy PASS-ALL in
+ route-policy PASS-ALL out
+ maximum-prefix 1000 90
+ !
+ !
  !
 !
 evpn
  evi 100
-  bgp
-   route-target import 65000:100
-   route-target export 65000:100
-  !
+ bgp
+ route-target import 65000:100
+ route-target export 65000:100
+ !
  !
 !
 lpts pifib policer bgp 5000
@@ -2734,7 +2687,7 @@ end
 
 ### A.2 Golden Config P
 
-P tidak punya VRF dan tidak punya BGP layanan. P hanya IGP, LDP atau SR, dan QoS core.
+P tidak memiliki VRF dan tidak memiliki BGP service. P hanya IGP, LDP atau SR, dan QoS core.
 
 ```
 hostname P1
@@ -2765,22 +2718,22 @@ router ospf 100
  segment-routing mpls
  segment-routing forwarding mpls
  area 0
-  interface Loopback0
-   passive enable
-   prefix-sid index 11
-  !
-  interface HundredGigE0/0/0/0
-   network point-to-point
-   bfd fast-detect
-   fast-reroute per-prefix
-   fast-reroute per-prefix ti-lfa
-  !
-  interface HundredGigE0/0/0/1
-   network point-to-point
-   bfd fast-detect
-   fast-reroute per-prefix
-   fast-reroute per-prefix ti-lfa
-  !
+ interface Loopback0
+ passive enable
+ prefix-sid index 11
+ !
+ interface HundredGigE0/0/0/0
+ network point-to-point
+ bfd fast-detect
+ fast-reroute per-prefix
+ fast-reroute per-prefix ti-lfa
+ !
+ interface HundredGigE0/0/0/1
+ network point-to-point
+ bfd fast-detect
+ fast-reroute per-prefix
+ fast-reroute per-prefix ti-lfa
+ !
  !
 !
 mpls ldp
@@ -2794,15 +2747,15 @@ mpls ldp
 !
 policy-map type qos EGRESS-CORE
  class CONTROL
-  priority level 1
-  police rate 500 mbps
+ priority level 1
+ police rate 500 mbps
  !
  class VOICE
-  priority level 2
-  police rate 5 percent
+ priority level 2
+ police rate 5 percent
  !
  class class-default
-  bandwidth remaining percent 80
+ bandwidth remaining percent 80
  !
 !
 interface HundredGigE0/0/0/0
@@ -2837,14 +2790,14 @@ router ospf 100
  nsr
  nsf cisco
  area 0
-  interface Loopback0
-   passive enable
-   prefix-sid index 101
-  !
-  interface HundredGigE0/0/0/0
-   network point-to-point
-   bfd fast-detect
-  !
+ interface Loopback0
+ passive enable
+ prefix-sid index 101
+ !
+ interface HundredGigE0/0/0/0
+ network point-to-point
+ bfd fast-detect
+ !
  !
 !
 route-policy PASS-ALL
@@ -2857,55 +2810,55 @@ router bgp 65000
  nsr
  bgp cluster-id 10.0.0.101
  neighbor 10.0.0.1
-  remote-as 65000
-  description PE1
-  update-source Loopback0
-  address-family ipv4 unicast
-   route-policy PASS-ALL in
-   route-policy PASS-ALL out
-  !
-  address-family vpnv4 unicast
-   route-policy PASS-ALL in
-   route-policy PASS-ALL out
-  !
-  address-family l2vpn evpn
-   route-policy PASS-ALL in
-   route-policy PASS-ALL out
-  !
+ remote-as 65000
+ description PE1
+ update-source Loopback0
+ address-family ipv4 unicast
+ route-policy PASS-ALL in
+ route-policy PASS-ALL out
+ !
+ address-family vpnv4 unicast
+ route-policy PASS-ALL in
+ route-policy PASS-ALL out
+ !
+ address-family l2vpn evpn
+ route-policy PASS-ALL in
+ route-policy PASS-ALL out
+ !
  !
  neighbor 10.0.0.2
-  remote-as 65000
-  description PE2
-  update-source Loopback0
-  address-family ipv4 unicast
-   route-policy PASS-ALL in
-   route-policy PASS-ALL out
-  !
-  address-family vpnv4 unicast
-   route-policy PASS-ALL in
-   route-policy PASS-ALL out
-  !
-  address-family l2vpn evpn
-   route-policy PASS-ALL in
-   route-policy PASS-ALL out
-  !
+ remote-as 65000
+ description PE2
+ update-source Loopback0
+ address-family ipv4 unicast
+ route-policy PASS-ALL in
+ route-policy PASS-ALL out
+ !
+ address-family vpnv4 unicast
+ route-policy PASS-ALL in
+ route-policy PASS-ALL out
+ !
+ address-family l2vpn evpn
+ route-policy PASS-ALL in
+ route-policy PASS-ALL out
+ !
  !
  neighbor 10.0.0.102
-  remote-as 65000
-  description RR2
-  update-source Loopback0
-  address-family ipv4 unicast
-   route-policy PASS-ALL in
-   route-policy PASS-ALL out
-  !
-  address-family vpnv4 unicast
-   route-policy PASS-ALL in
-   route-policy PASS-ALL out
-  !
-  address-family l2vpn evpn
-   route-policy PASS-ALL in
-   route-policy PASS-ALL out
-  !
+ remote-as 65000
+ description RR2
+ update-source Loopback0
+ address-family ipv4 unicast
+ route-policy PASS-ALL in
+ route-policy PASS-ALL out
+ !
+ address-family vpnv4 unicast
+ route-policy PASS-ALL in
+ route-policy PASS-ALL out
+ !
+ address-family l2vpn evpn
+ route-policy PASS-ALL in
+ route-policy PASS-ALL out
+ !
  !
 !
 commit label GOLDEN-RR1 comment Golden config RR1
@@ -2919,12 +2872,12 @@ Untuk PE SRv6, ganti blok SR-MPLS dengan blok SRv6. Sisanya sama: VRF, BGP, EVPN
 ```
 segment-routing
  srv6
-  locators
-   locator MAIN
-    micro-segment behavior unode psp-usd
-    prefix 2001:db8:100::/48
-   !
-  !
+ locators
+ locator MAIN
+ micro-segment behavior unode psp-usd
+ prefix 2001:db8:100::/48
+ !
+ !
  !
 !
 interface Loopback0
@@ -2937,23 +2890,23 @@ interface HundredGigE0/0/0/0
 !
 router isis CORE
  address-family ipv6 unicast
-  segment-routing srv6
-   locator MAIN
-  !
+ segment-routing srv6
+ locator MAIN
+ !
  !
 !
 router bgp 65000
  segment-routing srv6
-  locator MAIN
-  allocation mode per-vrf
+ locator MAIN
+ allocation mode per-vrf
  !
  vrf CUSTOMER-A
-  address-family ipv4 unicast
-   segment-routing srv6
-    locator MAIN
-    alloc mode per-vrf
-   !
-  !
+ address-family ipv4 unicast
+ segment-routing srv6
+ locator MAIN
+ alloc mode per-vrf
+ !
+ !
  !
 !
 commit label GOLDEN-PE1-SRV6 comment Varian SRv6 PE1
@@ -2969,16 +2922,16 @@ end
 - **Satu perubahan dalam satu waktu.** Jangan ubah OSPF dan BGP bersamaan saat troubleshooting.
 - **Catat sebelum dan sesudah.** Simpan output `show` sebelum perubahan untuk perbandingan.
 
-### B.2 L3VPN Down, CE Tidak Bisa Ping CE
+### B.2 L3VPN Down, CE Tidak Dapat Ping CE
 
 | Langkah | Perintah | Hasil yang Diharapkan | Jika Gagal, Artinya |
 | --- | --- | --- | --- |
-| 1. PE-CE | `show bgp vrf CUSTOMER-A ipv4 unicast summary` | Neighbor Established, prefix diterima | Cek interface, VRF, password BGP, route-policy |
-| 2. VPNv4 di PE sumber | `show bgp vpnv4 unicast rd 65000:100` | Ada route dari PE tujuan | Cek RT import dan export |
-| 3. RR | `show bgp vpnv4 unicast rd 65000:100` di RR | RR menerima dari PE sumber dan PE tujuan | Cek BGP PE ke RR, cek address-family vpnv4 aktif |
-| 4. PE tujuan import | `show route vrf CUSTOMER-A ipv4` di PE tujuan | Ada route customer | Cek RT evpn jika interworking EVPN, cek RD |
-| 5. LSP | `show mpls forwarding` dan `show cef vrf CUSTOMER-A` | Label dan next-hop benar | Cek IGP dan LDP atau SR |
-| 6. Return path | Ulangi langkah 1 sampai 5 dari arah berlawanan | Harus simetris | Jika satu arah jalan, cek RT di sisi yang gagal |
+| 1. PE-CE | `show bgp vrf CUSTOMER-A ipv4 unicast summary` | Neighbor Established, prefix diterima | Periksa interface, VRF, password BGP, route-policy |
+| 2. VPNv4 di PE source | `show bgp vpnv4 unicast rd 65000:100` | Ada route dari PE tujuan | Periksa RT import dan export |
+| 3. RR | `show bgp vpnv4 unicast rd 65000:100` di RR | RR menerima dari PE source dan PE tujuan | Periksa BGP PE ke RR, periksa address-family vpnv4 aktif |
+| 4. PE tujuan import | `show route vrf CUSTOMER-A ipv4` di PE tujuan | Ada route customer | Periksa RT evpn jika interworking EVPN, periksa RD |
+| 5. LSP | `show mpls forwarding` dan `show cef vrf CUSTOMER-A` | Label dan next-hop benar | Periksa IGP dan LDP atau SR |
+| 6. Return path | Ulangi langkah 1 sampai 5 dari arah berlawanan | Harus simetris | Jika satu arah berjalan, periksa RT di sisi yang gagal |
 
 Perintah cepat L3VPN:
 
@@ -2993,13 +2946,13 @@ traceroute vrf CUSTOMER-A 192.168.2.2 source 192.168.1.1
 
 ### B.3 EVPN VPWS dan E-LAN Down
 
-| Gejala | Cek Pertama | Penyebab Paling Sering |
+| Gejala | Periksa Pertama | Penyebab Paling Sering |
 | --- | --- | --- |
 | VPWS Down | `show l2vpn xconnect group VPWS-CUSTOMER-A` | EVI tidak cocok, RT tidak cocok, BGP EVPN belum Established |
 | E-LAN MAC tidak belajar | `show bgp l2vpn evpn route-type 2` | BGP EVPN belum Established, EVI belum aktif di bridge-domain |
 | ESI multihoming tidak sinkron | `show evpn ethernet-segment` | ESI tidak sama persis di dua PE, termasuk format identifier |
-| BUM flood berlebihan | `show bgp l2vpn evpn route-type 3` | Route Type 3 tidak terdistribusi, cek RT dan RR |
-| IRB tidak bisa ping gateway | `show interface BVI200` dan `show arp vrf CUSTOMER-A` | BVI tidak di-assign ke bridge-domain, atau VRF salah |
+| BUM flood berlebihan | `show bgp l2vpn evpn route-type 3` | Route Type 3 tidak terdistribusi, periksa RT dan RR |
+| IRB tidak dapat ping gateway | `show interface BVI200` dan `show arp vrf CUSTOMER-A` | BVI tidak assigned ke bridge-domain, atau VRF salah |
 
 ```
 show evpn evi 100 detail
@@ -3012,12 +2965,12 @@ show bgp l2vpn evpn evi 100
 
 ### B.4 SR-MPLS dan SR Policy Tidak Up
 
-| Gejala | Cek | Penyebab |
+| Gejala | Periksa | Penyebab |
 | --- | --- | --- |
 | Prefix SID tidak muncul | `show ospf segment-routing` atau `show isis segment-routing label table` | SRGB tidak sama, `segment-routing mpls` belum aktif, `prefix-sid index` salah tempat |
 | Label SR tidak dipakai, masih LDP | `show mpls forwarding` | `sr-prefer` belum aktif, SRGB tabrakan dengan LDP |
 | SR Policy Down | `show segment-routing traffic-eng policy` | Segment list salah, endpoint tidak reachable, color tidak cocok dengan BGP VRF |
-| TI-LFA tidak ada backup | `show cef ipv4 10.0.0.2/32 detail` | Topologi tidak punya path alternatif, metric asimetris |
+| TI-LFA tidak ada backup | `show cef ipv4 10.0.0.2/32 detail` | Topology tidak memiliki path alternatif, metric asimetris |
 
 ```
 show segment-routing mpls mapping-server
@@ -3028,7 +2981,7 @@ show mpls forwarding
 
 ### B.5 SRv6 SID Tidak Teralokasi
 
-| Gejala | Cek | Penyebab |
+| Gejala | Periksa | Penyebab |
 | --- | --- | --- |
 | Locator tidak muncul | `show segment-routing srv6 locator MAIN detail` | Prefix locator salah, `micro-segment behavior` tidak cocok |
 | SID End.DT4 tidak ada | `show segment-routing srv6 sid` | `segment-routing srv6` belum aktif di BGP VRF, allocation mode belum per-vrf |
@@ -3036,9 +2989,9 @@ show mpls forwarding
 
 ### B.6 BGP Flapping dan IGP Flapping
 
-- **BGP flapping:** Cek `show logging`, cek LPTS drop untuk BGP, cek MTU, cek `maximum-prefix` apakah sesi ter-shutdown karena prefix berlebih.
-- **IGP flapping:** Cek BFD, cek LPTS drop untuk OSPF atau IS-IS, cek QoS class CONTROL apakah di-police terlalu rendah, cek interface error dan CRC.
-- **Semua flapping bersamaan:** Cek power, fabric, dan RP. Jangan troubleshooting BGP dulu jika hardware bermasalah.
+- **BGP flapping:** Periksa `show logging`, periksa LPTS drop untuk BGP, periksa MTU, periksa `maximum-prefix` apakah session ter-shutdown karena prefix berlebih.
+- **IGP flapping:** Periksa BFD, periksa LPTS drop untuk OSPF atau IS-IS, periksa QoS class CONTROL apakah policed terlalu rendah, periksa interface error dan CRC.
+- **Semua flapping bersamaan:** Periksa power, fabric, dan RP. Jangan troubleshooting BGP dulu jika hardware bermasalah.
 
 ```
 show logging last 200
@@ -3059,30 +3012,28 @@ Setiap insiden harus dicatat dengan format ini:
 - Perintah yang dipakai dan output kunci
 - Root cause: satu kalimat yang jelas
 - Perbaikan: commit ID dan label yang dipakai
-- Pencegahan: apa yang diubah di golden config dan monitoring
-
----
+- Prevention: apa yang diubah di golden config dan monitoring
 
 ## Appendix C: Inter-AS dan DCI
 
-### C.1 Kapan Butuh Inter-AS
+### C.1 Kapan Membutuhkan Inter-AS
 
-- ISP punya 2 AS yang berbeda karena akuisisi
+- ISP memiliki 2 AS yang berbeda karena akuisisi
 - DCI antar data center dengan AS berbeda
 - Peering L3VPN antar ISP untuk customer multi-homing antar ISP
-- DCI antar POP yang memakai AS berbeda untuk isolasi
+- DCI antar POP yang menggunakan AS berbeda untuk isolasi
 
 ### C.2 Inter-AS Option B untuk L3VPN
 
 Option B adalah yang paling seimbang untuk ISP. Border router saling peer eBGP VPNv4, next-hop diubah ke border router sendiri.
 
-Topologi:
+Topology:
 
 ```
 PE1 (AS 65000) -- ASBR1 (AS 65000) -- eBGP VPNv4 -- ASBR2 (AS 65001) -- PE2 (AS 65001)
 ```
 
-Konfigurasi ASBR1 di AS 65000:
+Configuration ASBR1 di AS 65000:
 
 ```
 configure
@@ -3093,30 +3044,30 @@ end-policy
 router bgp 65000
  bgp router-id 10.0.0.201
  neighbor 10.0.1.1
-  remote-as 65001
-  description ASBR2-AS-65001
-  update-source Loopback0
-  address-family vpnv4 unicast
-   route-policy PASS-ALL in
-   route-policy PASS-ALL out
-  !
-  address-family l2vpn evpn
-   route-policy PASS-ALL in
-   route-policy PASS-ALL out
-  !
+ remote-as 65001
+ description ASBR2-AS-65001
+ update-source Loopback0
+ address-family vpnv4 unicast
+ route-policy PASS-ALL in
+ route-policy PASS-ALL out
+ !
+ address-family l2vpn evpn
+ route-policy PASS-ALL in
+ route-policy PASS-ALL out
+ !
  !
  neighbor 10.0.0.101
-  remote-as 65000
-  description RR1-AS-65000
-  update-source Loopback0
-  address-family vpnv4 unicast
-   route-policy PASS-ALL in
-   route-policy PASS-ALL out
-  !
-  address-family l2vpn evpn
-   route-policy PASS-ALL in
-   route-policy PASS-ALL out
-  !
+ remote-as 65000
+ description RR1-AS-65000
+ update-source Loopback0
+ address-family vpnv4 unicast
+ route-policy PASS-ALL in
+ route-policy PASS-ALL out
+ !
+ address-family l2vpn evpn
+ route-policy PASS-ALL in
+ route-policy PASS-ALL out
+ !
  !
 !
 mpls bgp forwarding
@@ -3125,35 +3076,35 @@ commit label INTERAS-B-ASBR1 comment Aktifkan Inter-AS Option B ASBR1
 end
 ```
 
-Konfigurasi ASBR2 di AS 65001 adalah cerminan, hanya AS dan Loopback yang berbeda. Pastikan RT sama di kedua AS untuk service yang sama, atau lakukan RT translation jika RT berbeda antar AS.
+Configuration ASBR2 di AS 65001 adalah cerminan, hanya AS dan Loopback yang berbeda. Pastikan RT sama di kedua AS untuk service yang sama, atau lakukan RT translation jika RT berbeda antar AS.
 
 ### C.3 Inter-AS Option C, Ringkasan Arsitek
 
-Option C memakai eBGP labeled unicast antar ASBR untuk Loopback, dan eBGP VPNv4 antar RR dengan next-hop unchanged. Ini paling scalable, tetapi paling kompleks. Gunakan Option C jika jumlah PE sudah ratusan dan Option B mulai menjadi bottleneck di ASBR. Jangan mulai dengan Option C jika tim baru pertama kali implementasi Inter-AS.
+Option C menggunakan eBGP labeled unicast antar ASBR untuk Loopback, dan eBGP VPNv4 antar RR dengan next-hop unchanged. Ini paling scalable, tetapi paling kompleks. Gunakan Option C jika jumlah PE sudah ratusan dan Option B mulai menjadi bottleneck di ASBR. Jangan mulai dengan Option C jika tim baru pertama kali implementation Inter-AS.
 
 ### C.4 DCI dengan EVPN
 
-DCI memakai EVPN untuk membawa L2 dan L3 antar data center. Prinsipnya sama dengan Inter-AS Option B, tetapi address-family yang dipakai adalah `l2vpn evpn`.
+DCI menggunakan EVPN untuk membawa L2 dan L3 antar data center. Prinsipnya sama dengan Inter-AS Option B, tetapi address-family yang dipakai adalah `l2vpn evpn`.
 
 ```
 configure
 router bgp 65000
  neighbor 10.0.1.1
-  remote-as 65001
-  description DCI-PEER-DC2
-  update-source Loopback0
-  address-family l2vpn evpn
-   route-policy PASS-ALL in
-   route-policy PASS-ALL out
-  !
+ remote-as 65001
+ description DCI-PEER-DC2
+ update-source Loopback0
+ address-family l2vpn evpn
+ route-policy PASS-ALL in
+ route-policy PASS-ALL out
+ !
  !
 !
 evpn
  evi 100
-  bgp
-   route-target import 65000:100
-   route-target export 65000:100
-  !
+ bgp
+ route-target import 65000:100
+ route-target export 65000:100
+ !
  !
 !
 commit label DCI-EVPN comment Aktifkan DCI EVPN
@@ -3162,11 +3113,11 @@ end
 
 Untuk DCI, perhatikan:
 
-- **RT harus sama di kedua DC** untuk service yang sama, kecuali Anda sengaja melakukan RT translation di border.
-- **Batasi BUM traffic antar DC.** BUM yang diflood antar DC bisa membanjiri DCI. Gunakan EVPN dengan IGMP snooping dan selective BUM jika memungkinkan.
+- **RT harus sama di kedua DC** untuk service yang sama, kecuali RT translation dilakukan secara sengaja di border.
+- **Batasi BUM traffic antar DC.** BUM yang diflood antar DC dapat membanjiri DCI. Gunakan EVPN dengan IGMP snooping dan selective BUM jika memungkinkan.
 - **Latency DCI harus diukur.** Jangan jadikan DCI sebagai path utama jika latency antar DC di atas SLA customer.
 
-### C.5 Verifikasi Inter-AS dan DCI
+### C.5 Verification Inter-AS dan DCI
 
 ```
 show bgp vpnv4 unicast summary
@@ -3178,13 +3129,12 @@ show route vrf CUSTOMER-A ipv4
 ping vrf CUSTOMER-A 192.168.2.2 source 192.168.1.1
 ```
 
----
 
 ## Appendix D: Flex-Algo untuk SR-MPLS dan SRv6
 
 ### D.1 Konsep Flex-Algo
 
-Flex-Algo atau Flexible Algorithm memungkinkan satu IGP membawa beberapa topologi logis. Setiap algoritma punya definisi: metric type, constraint, dan tujuan optimasi.
+Flex-Algo atau Flexible Algorithm memungkinkan satu IGP membawa beberapa topology logis. Setiap algoritma memiliki definisi: metric type, constraint, dan tujuan optimasi.
 
 Contoh yang paling sering dipakai:
 
@@ -3195,11 +3145,11 @@ Contoh yang paling sering dipakai:
 | 129 | Disjoint dan Low Delay | Metric delay, hindari link yang sudah dipakai Algo 128 | Backup disjoint untuk low latency |
 | 130 | Bandwidth | Metric TE, hindari link low bandwidth | Video, backup besar |
 
-Tanpa Flex-Algo, Anda harus membuat SR Policy manual per flow. Dengan Flex-Algo, Anda cukup memberi tahu BGP atau SR Policy untuk memakai Algo tertentu, dan IGP yang menghitung path-nya.
+Tanpa Flex-Algo, SR Policy manual per flow harus dibuat. Dengan Flex-Algo, BGP atau SR Policy cukup dikonfigurasi untuk menggunakan Algo tertentu, dan IGP yang menghitung path-nya.
 
-### D.2 Konfigurasi Flex-Algo di IS-IS
+### D.2 Configuration Flex-Algo di IS-IS
 
-Flex-Algo paling matang di IS-IS. OSPF juga mendukung, tetapi IS-IS adalah referensi di ISP Tier-1.
+Flex-Algo paling matang di IS-IS. OSPF juga mendukung, tetapi IS-IS adalah reference di ISP Tier-1.
 
 Langkah 1: Definisikan Flex-Algo di IS-IS.
 
@@ -3207,39 +3157,39 @@ Langkah 1: Definisikan Flex-Algo di IS-IS.
 configure
 router isis CORE
  flex-algo 128
-  metric-type delay
-  advertise-definition
+ metric-type delay
+ advertise-definition
  !
  flex-algo 129
-  metric-type delay
-  advertise-definition
+ metric-type delay
+ advertise-definition
  !
  address-family ipv4 unicast
-  metric-style wide
+ metric-style wide
  !
  interface HundredGigE0/0/0/0
-  address-family ipv4 unicast
-   metric 10
-  !
+ address-family ipv4 unicast
+ metric 10
+ !
  !
 !
 commit label FLEXALGO-DEF comment Definisikan Flex-Algo 128 dan 129
 end
 ```
 
-Langkah 2: Konfigurasi delay measurement per link jika memakai metric delay. Tanpa delay measurement, metric delay tidak akan akurat.
+Langkah 2: Configuration delay measurement per link jika menggunakan metric delay. Tanpa delay measurement, metric delay tidak akan akurat.
 
 ```
 configure
 performance-measurement
  interface HundredGigE0/0/0/0
-  delay-measurement
+ delay-measurement
  !
  delay-profile interfaces
-  advertisement
-   accelerated
-   periodic
-  !
+ advertisement
+ accelerated
+ periodic
+ !
  !
 !
 commit
@@ -3252,40 +3202,40 @@ Langkah 3: Aktifkan Prefix SID untuk Flex-Algo di Loopback.
 configure
 router isis CORE
  interface Loopback0
-  address-family ipv4 unicast
-   prefix-sid index 1
-   prefix-sid algorithm 128 index 128
-   prefix-sid algorithm 129 index 129
-  !
+ address-family ipv4 unicast
+ prefix-sid index 1
+ prefix-sid algorithm 128 index 128
+ prefix-sid algorithm 129 index 129
+ !
  !
 !
 commit label FLEXALGO-SID comment Aktifkan Prefix SID Flex-Algo Loopback
 end
 ```
 
-Penjelasan: Loopback sekarang punya 3 SID, satu untuk Algo 0 dengan index 1, satu untuk Algo 128 dengan index 128, dan satu untuk Algo 129 dengan index 129. Jika SRGB 16000, maka SID-nya adalah 16001, 16128, dan 16129.
+Penjelasan: Loopback sekarang memiliki 3 SID, satu untuk Algo 0 dengan index 1, satu untuk Algo 128 dengan index 128, dan satu untuk Algo 129 dengan index 129. Jika SRGB 16000, maka SID-nya adalah 16001, 16128, dan 16129.
 
 ### D.3 Flex-Algo untuk SR-MPLS
 
-Setelah Flex-Algo aktif di IGP, SR Policy bisa memakai Flex-Algo sebagai constraint dinamis.
+Setelah Flex-Algo aktif di IGP, SR Policy dapat menggunakan Flex-Algo sebagai constraint dinamis.
 
 ```
 configure
 segment-routing
  traffic-eng
-  policy POL-LOWLAT-PE1-PE2
-   color 128 end-point ipv4 10.0.0.2
-   candidate-paths
-    preference 100
-     dynamic
-      metric
-       type delay
-      !
-      flex-algo 128
-     !
-    !
-   !
-  !
+ policy POL-LOWLAT-PE1-PE2
+ color 128 end-point ipv4 10.0.0.2
+ candidate-paths
+ preference 100
+ dynamic
+ metric
+ type delay
+ !
+ flex-algo 128
+ !
+ !
+ !
+ !
  !
 !
 commit label FLEXALGO-SR-MPLS comment SR Policy dengan Flex-Algo 128
@@ -3300,25 +3250,25 @@ Untuk SRv6, Flex-Algo dipakai dengan locator yang berbeda per algoritma, atau de
 configure
 segment-routing
  srv6
-  locators
-   locator MAIN
-    micro-segment behavior unode psp-usd
-    prefix 2001:db8:100::/48
-   !
-   locator LOWLAT
-    micro-segment behavior unode psp-usd
-    prefix 2001:db8:200::/48
-    algorithm 128
-   !
-  !
+ locators
+ locator MAIN
+ micro-segment behavior unode psp-usd
+ prefix 2001:db8:100::/48
+ !
+ locator LOWLAT
+ micro-segment behavior unode psp-usd
+ prefix 2001:db8:200::/48
+ algorithm 128
+ !
+ !
  !
 !
 router isis CORE
  address-family ipv6 unicast
-  segment-routing srv6
-   locator MAIN
-   locator LOWLAT
-  !
+ segment-routing srv6
+ locator MAIN
+ locator LOWLAT
+ !
  !
 !
 commit label FLEXALGO-SRV6 comment Locator SRv6 untuk Flex-Algo 128
@@ -3327,22 +3277,22 @@ end
 
 ### D.5 Flex-Algo untuk L3VPN dan EVPN
 
-BGP bisa menandai VRF atau EVI untuk memakai Flex-Algo tertentu. Ini cara menjual SLA yang berbeda tanpa membuat SR Policy manual per customer.
+BGP dapat menandai VRF atau EVI untuk menggunakan Flex-Algo tertentu. Ini cara menjual SLA yang berbeda tanpa membuat SR Policy manual per customer.
 
 ```
 configure
 router bgp 65000
  vrf CUSTOMER-LOWLAT
-  address-family ipv4 unicast
-   segment-routing policy color 128
-  !
+ address-family ipv4 unicast
+ segment-routing policy color 128
+ !
  !
 !
 commit
 end
 ```
 
-### D.6 Verifikasi Flex-Algo
+### D.6 Verification Flex-Algo
 
 ```
 show isis flex-algo 128
@@ -3354,26 +3304,24 @@ show cef ipv4 10.0.0.2/32 detail
 
 Jika `show isis flex-algo 128` menampilkan prefix dengan SID yang berbeda dari Algo 0, dan SR Policy color 128 Up, maka Flex-Algo sudah bekerja.
 
----
-
 ## Appendix E: MVPN dan NG-MVPN
 
 ### E.1 Kenapa MVPN
 
-L3VPN unicast tidak membawa multicast. Jika customer butuh IPTV, video conference multicast, atau routing multicast enterprise, Anda butuh MVPN. Tanpa MVPN, multicast customer akan diflood atau tidak jalan sama sekali lewat core MPLS.
+L3VPN unicast tidak membawa multicast. Jika customer membutuhkan IPTV, video conference multicast, atau routing multicast enterprise, MVPN dibutuhkan. Tanpa MVPN, multicast customer akan diflood atau tidak berjalan sama sekali lewat core MPLS.
 
 ### E.2 Konsep MVPN
 
 - **Default MDT:** Multicast Distribution Tree default untuk setiap MVPN. Semua PE dalam satu MVPN bergabung ke MDT yang sama untuk BUM dan multicast.
 - **Data MDT:** MDT dinamis untuk source multicast yang traffic-nya besar. Data MDT dibuat hanya saat ada traffic, untuk menghemat bandwidth core.
-- **NG-MVPN:** Generasi baru MVPN yang memakai BGP, bukan PIM di core. NG-MVPN lebih scalable dan terintegrasi dengan EVPN dan SR.
+- **NG-MVPN:** Generasi baru MVPN yang menggunakan BGP, bukan PIM di core. NG-MVPN lebih scalable dan terintegrasi dengan EVPN dan SR.
 
 | Jenis | Control Plane | Kapan Dipakai |
 | --- | --- | --- |
 | MDT GRE | PIM di core | Legacy, tidak disarankan untuk core baru |
-| NG-MVPN | BGP, dengan PMSI dan I-PMSI | Referensi untuk core baru, integrasi dengan SR dan EVPN |
+| NG-MVPN | BGP, dengan PMSI dan I-PMSI | Reference untuk core baru, integrasi dengan SR dan EVPN |
 
-### E.3 Konfigurasi NG-MVPN di PE1
+### E.3 Configuration NG-MVPN di PE1
 
 Langkah 1: Aktifkan multicast routing di VRF.
 
@@ -3381,19 +3329,19 @@ Langkah 1: Aktifkan multicast routing di VRF.
 configure
 multicast-routing
  vrf CUSTOMER-A
-  address-family ipv4
-   interface GigabitEthernet0/0/0/1
-    enable
-   !
-   mdt default ipv4 239.0.0.1
-   mdt data 239.0.1.0/24 threshold 10
-   bgp
-    auto-discovery
-     inter-as
-     pmsi
-    !
-   !
-  !
+ address-family ipv4
+ interface GigabitEthernet0/0/0/1
+ enable
+ !
+ mdt default ipv4 239.0.0.1
+ mdt data 239.0.1.0/24 threshold 10
+ bgp
+ auto-discovery
+ inter-as
+ pmsi
+ !
+ !
+ !
  !
 !
 commit label MVPN-PE1 comment Aktifkan NG-MVPN CUSTOMER-A PE1
@@ -3406,31 +3354,31 @@ Langkah 2: Aktifkan BGP MVPN ke RR.
 configure
 router bgp 65000
  neighbor 10.0.0.101
-  address-family ipv4 mvpn
-   route-policy PASS-ALL in
-   route-policy PASS-ALL out
-  !
+ address-family ipv4 mvpn
+ route-policy PASS-ALL in
+ route-policy PASS-ALL out
+ !
  !
  vrf CUSTOMER-A
-  address-family ipv4 unicast
-   redistribute connected
-  !
-  address-family ipv4 mvpn
-   auto-discovery
-  !
+ address-family ipv4 unicast
+ redistribute connected
+ !
+ address-family ipv4 mvpn
+ auto-discovery
+ !
  !
 !
 commit label MVPN-BGP-PE1 comment Aktifkan BGP MVPN PE1
 end
 ```
 
-Langkah 3: Konfigurasi CE untuk multicast. CE harus menjalankan PIM atau IGMP ke PE. PE akan meneruskan join multicast via BGP MVPN ke PE lain.
+Langkah 3: Configuration CE untuk multicast. CE harus menjalankan PIM atau IGMP ke PE. PE akan meneruskan join multicast via BGP MVPN ke PE lain.
 
 ### E.4 MVPN dengan SR-MPLS dan SRv6
 
-NG-MVPN di atas SR memakai PMSI yang sama, tetapi transportnya SR, bukan RSVP-TE atau LDP. Untuk SR-MPLS, pastikan Prefix SID sudah aktif. Untuk SRv6, pastikan locator sudah aktif. Tidak ada konfigurasi MVPN tambahan yang spesifik untuk SR, karena MVPN memakai transport yang sudah ada.
+NG-MVPN di atas SR menggunakan PMSI yang sama, tetapi transportnya SR, bukan RSVP-TE atau LDP. Untuk SR-MPLS, pastikan Prefix SID sudah aktif. Untuk SRv6, pastikan locator sudah aktif. Tidak ada configuration MVPN tambahan yang spesifik untuk SR, karena MVPN menggunakan transport yang sudah ada.
 
-### E.5 Verifikasi MVPN
+### E.5 Verification MVPN
 
 ```
 show multicast-routing vrf CUSTOMER-A ipv4
@@ -3449,31 +3397,31 @@ Jika `show pim vrf CUSTOMER-A` menampilkan neighbor CE, dan `show bgp ipv4 mvpn`
 
 ### F.1 Lab XRv 9000 yang Direkomendasikan
 
-Topologi lab minimal untuk validasi semua bab:
+Topology lab minimal untuk validation semua modul:
 
 ```
 CE1 -- PE1 -- P1 -- P2 -- PE2 -- CE2
-         |           |
-        RR1         RR2
+ | |
+ RR1 RR2
 ```
 
 Spesifikasi lab:
 
 - **Per node:** 4 vCPU, 8 GB RAM, 1 disk 20 GB untuk XRv 9000 dengan BGP dan SR
-- **Topologi:** 7 node, termasuk 2 CE yang bisa memakai XRv 9000 atau Linux dengan FRR
-- **Validasi per bab:** Bab 3 cek IGP dan LDP, Bab 4 cek L3VPN, Bab 5 cek SR Policy, Bab 6 cek SRv6, Bab 7 dan 8 cek EVPN, Bab 9 cek QoS dan LPTS
+- **Topology:** 7 node, termasuk 2 CE yang dapat menggunakan XRv 9000 atau Linux dengan FRR
+- **Validation per modul:** Modul 3 periksa IGP dan LDP, Modul 4 periksa L3VPN, Modul 5 periksa SR Policy, Modul 6 periksa SRv6, Modul 7 dan 8 periksa EVPN, Modul 9 periksa QoS dan LPTS
 
 Skenario gagal yang wajib diuji di lab:
 
 - Matikan satu link core, ukur loss dan TI-LFA
-- Matikan satu RR, cek BGP tetap Established ke RR kedua
-- Matikan satu RP atau reload satu PE, cek NSR dan NSF
-- Banjiri BGP dengan prefix berlebih, cek maximum-prefix
+- Matikan satu RR, periksa BGP tetap Established ke RR kedua
+- Matikan satu RP atau reload satu PE, periksa NSR dan NSF
+- Banjiri BGP dengan prefix berlebih, periksa maximum-prefix
 - Ubah QoS class CONTROL ke police terlalu rendah, lihat dampak ke OSPF
 
 ### F.3 Template Change Management
 
-Setiap perubahan di core harus memakai template ini:
+Setiap perubahan di core harus menggunakan template ini:
 
 ```
 CHG ID: CHG-2026-XXXX
@@ -3488,11 +3436,11 @@ Perubahan:
 Rollback:
  - rollback configuration last 1 untuk tiap commit
  - Commit ID sebelumnya: 1000001234
-Validasi Sebelum:
+Validation Sebelum:
  - show bgp vpnv4 unicast summary
  - show mpls forwarding
  - ping vrf CUSTOMER-A
-Validasi Sesudah:
+Validation Sesudah:
  - show ospf segment-routing
  - show mpls forwarding
  - ping vrf CUSTOMER-A
@@ -3502,7 +3450,7 @@ Persetujuan: Nama approver
 
 ## Penutup Appendix
 
-Appendix A sampai F menutup celah antara guide teori dan operasi nyata. Bab 1 sampai Bab 9 memberi Anda fondasi dan layanan. Appendix memberi Anda template, troubleshooting, dan desain lanjutan yang membuat guide ini bisa langsung dipakai di produksi, bukan hanya dibaca.
+Appendix A sampai F menutup celah antara guide teori dan operasi nyata. Modul 1 sampai Modul 9 memberikan fondasi dan service. Appendix memberikan template, troubleshooting, dan design lanjutan yang membuat guide ini dapat langsung digunakan di produksi, bukan hanya dibaca.
 ---
 
 ## Appendix G: Studi Kasus OSPF sebagai IGP Utama, Segment Routing sebagai Opsi 2
@@ -3511,12 +3459,12 @@ Appendix A sampai F menutup celah antara guide teori dan operasi nyata. Bab 1 sa
 
 Mulai Appendix ini, posisi guide diperjelas:
 
-- **Opsi 1, Utama:** OSPF sebagai IGP + LDP sebagai transport MPLS + BGP sebagai pembawa layanan
-- **Opsi 2, Alternatif:** OSPF sebagai IGP + Segment Routing MPLS atau SRv6 sebagai transport + BGP sebagai pembawa layanan
+- **Opsi 1, Utama:** OSPF sebagai IGP + LDP sebagai transport MPLS + BGP sebagai pembawa service
+- **Opsi 2, Alternatif:** OSPF sebagai IGP + Segment Routing MPLS atau SRv6 sebagai transport + BGP sebagai pembawa service
 
-Segment Routing tidak lagi dianggap sebagai pengganti wajib LDP. Segment Routing adalah opsi kedua yang dipakai hanya jika ada kebutuhan spesifik yang tidak bisa dipenuhi LDP. Ini keputusan arsitek yang lebih aman untuk ISP yang tim-nya sudah kuat OSPF dan LDP, dan yang butuh stabilitas lebih dulu daripada fitur baru.
+Segment Routing tidak lagi dianggap sebagai pengganti wajib LDP. Segment Routing adalah opsi kedua yang dipakai hanya jika ada kebutuhan spesifik yang tidak dapat dipenuhi LDP. Ini keputusan arsitek yang lebih aman untuk ISP yang tim-nya sudah kuat OSPF dan LDP, dan yang membutuhkan stabilitas lebih dulu daripada fitur baru.
 
-Bab 3, Bab 4, dan Bab 5 tetap valid. Yang berubah adalah prioritasnya. Bab 3 dan Bab 4 adalah fondasi utama. Bab 5 dan Bab 6 adalah opsi lanjutan.
+Modul 3, Modul 4, dan Modul 5 tetap valid. Yang berubah adalah prioritasnya. Modul 3 dan Modul 4 adalah fondasi utama. Modul 5 dan Modul 6 adalah opsi lanjutan.
 
 ### G.2 Kenapa OSPF Dipilih sebagai IGP Utama
 
@@ -3524,11 +3472,11 @@ Bab 3, Bab 4, dan Bab 5 tetap valid. Yang berubah adalah prioritasnya. Bab 3 dan
 | --- | --- |
 | Tim sudah kuat OSPF | Mayoritas engineer ISP di Indonesia lebih cepat troubleshooting OSPF daripada IS-IS. Di insiden jam 2 pagi, kecepatan troubleshooting lebih penting dari keunggulan teori protokol. |
 | Rekrutmen lebih mudah | Engineer OSPF lebih banyak di pasar. Engineer IS-IS yang benar-benar paham TLV dan level lebih sedikit. |
-| Integrasi dengan enterprise | CE enterprise sering memakai OSPF PE-CE. Jika core juga OSPF, tim hanya perlu satu pola pikir OSPF. |
+| Integrasi dengan enterprise | CE enterprise sering menggunakan OSPF PE-CE. Jika core juga OSPF, tim hanya perlu satu pola pikir OSPF. |
 | Dokumentasi dan training lebih tersedia | Materi OSPF untuk IOS-XR lebih banyak dan lebih mudah diakses tim operasional. |
-| Skala ISP menengah sampai besar masih aman | OSPF area 0 flat dengan 50 sampai 100 node masih sangat stabil jika desainnya benar. IS-IS baru unggul jelas di atas 200 node atau untuk SRv6 skala Tier-1. |
+| Scale ISP menengah sampai besar masih aman | OSPF area 0 flat dengan 50 sampai 100 node masih sangat stabil jika desainnya benar. IS-IS baru unggul jelas di atas 200 node atau untuk SRv6 scale Tier-1. |
 
-Kapan IS-IS tetap lebih baik: jika ISP sudah di atas 200 node core, jika target adalah SRv6 skala Tier-1 dengan Flex-Algo yang kompleks, atau jika tim sudah punya tim IS-IS yang kuat. Di luar kondisi itu, OSPF adalah pilihan yang lebih operasional.
+Kapan IS-IS tetap lebih baik: jika ISP sudah di atas 200 node core, jika target adalah SRv6 scale Tier-1 dengan Flex-Algo yang kompleks, atau jika tim sudah memiliki tim IS-IS yang kuat. Di luar kondisi itu, OSPF adalah pilihan yang lebih operasional.
 
 ### G.3 Studi Kasus: ISP Regional 3 POP, 10 PE, 4 P, 2 RR
 
@@ -3547,22 +3495,22 @@ Kapan IS-IS tetap lebih baik: jika ISP sudah di atas 200 node core, jika target 
 
 - IGP: OSPF area 0 flat, satu area saja, tidak ada area 1 atau area 2
 - Transport Opsi 1: LDP, karena tim sudah paham dan tidak ada kebutuhan TE yang kompleks
-- Transport Opsi 2: SR-MPLS, hanya diaktifkan nanti jika ada kebutuhan SR Policy atau TI-LFA yang tidak bisa dipenuhi LDP
+- Transport Opsi 2: SR-MPLS, hanya diaktifkan nanti jika ada kebutuhan SR Policy atau TI-LFA yang tidak dapat dipenuhi LDP
 - BGP: iBGP ke RR, dengan VPNv4 dan EVPN
-- QoS dan LPTS: sama seperti Bab 9, tidak berubah
+- QoS dan LPTS: sama seperti Modul 9, tidak berubah
 
-Hasilnya: ISP ini jalan stabil selama 2 tahun dengan Opsi 1, tanpa SR. Baru di tahun ke-3, saat ada customer enterprise yang minta SLA low latency dengan path disjoint, tim mengaktifkan SR sebagai Opsi 2 di 2 PE dan 2 P saja, bukan di seluruh core.
+Hasilnya: ISP ini berjalan stabil selama 2 tahun dengan Opsi 1, tanpa SR. Baru di tahun ke-3, saat ada customer enterprise yang minta SLA low latency dengan path disjoint, tim mengaktifkan SR sebagai Opsi 2 di 2 PE dan 2 P saja, bukan di seluruh core.
 
 Ini adalah pola yang benar: Opsi 1 dulu yang stabil, Opsi 2 hanya untuk kebutuhan spesifik.
 
-### G.4 Desain OSPF untuk Studi Kasus Ini
+### G.4 Design OSPF untuk Studi Kasus Ini
 
-**Aturan desain OSPF yang dipakai:**
+**Aturan design OSPF yang dipakai:**
 
 - **Satu area, Area 0:** Jangan buat area 1, 2, atau NSSA untuk core. Area tambahan hanya menambah kompleksitas dan membuat troubleshooting lebih sulit. Area tambahan hanya untuk PE-CE, bukan untuk core.
 - **Router ID selalu Loopback0:** Jangan biarkan OSPF memilih otomatis.
 - **Loopback passive:** Loopback diiklankan, tetapi tidak mengirim hello.
-- **Link point-to-point:** Semua link core memakai `network point-to-point`, tanpa DR dan BDR.
+- **Link point-to-point:** Semua link core menggunakan `network point-to-point`, tanpa DR dan BDR.
 - **Metric simetris:** Metric pergi dan pulang harus sama. Jika Jakarta ke Surabaya metric 20, maka Surabaya ke Jakarta juga metric 20. Metric asimetris membuat TI-LFA dan troubleshooting menjadi sulit.
 - **Summarisasi tidak perlu di core:** Core hanya Loopback dan link, jadi tidak ada yang perlu disummarisasi. Summarisasi hanya di PE-CE.
 
@@ -3591,9 +3539,9 @@ Ini adalah pola yang benar: Opsi 1 dulu yang stabil, Opsi 2 hanya untuk kebutuha
 
 Metric inter-POP lebih besar dari metric lokal. Ini membuat traffic lokal POP tidak lewat POP lain, dan traffic inter-POP memilih path yang paling dekat.
 
-### G.5 Opsi 1 Utama: OSPF + LDP + BGP, Konfigurasi Lengkap Studi Kasus
+### G.5 Opsi 1 Utama: OSPF + LDP + BGP, Configuration Lengkap Studi Kasus
 
-Ini adalah konfigurasi yang dipakai di produksi untuk ISP studi kasus. SR belum aktif sama sekali.
+Ini adalah configuration yang dipakai di produksi untuk ISP studi kasus. SR belum aktif sama sekali.
 
 **PE-JKT-01, Opsi 1:**
 
@@ -3603,10 +3551,10 @@ hostname PE-JKT-01
 vrf CUSTOMER-A
  rd 65000:100
  address-family ipv4 unicast
-  import route-target 65000:100
-  export route-target 65000:100
-  import route-target 65000:100 evpn
-  export route-target 65000:100 evpn
+ import route-target 65000:100
+ export route-target 65000:100
+ import route-target 65000:100 evpn
+ export route-target 65000:100 evpn
  !
 !
 interface Loopback0
@@ -3633,16 +3581,16 @@ router ospf 100
  timers throttle spf 50 100 5000
  timers throttle lsa all 50 100 5000
  area 0
-  interface Loopback0
-   passive enable
-  !
-  interface HundredGigE0/0/0/0
-   network point-to-point
-   cost 10
-   hello-interval 3
-   dead-interval 9
-   bfd fast-detect
-  !
+ interface Loopback0
+ passive enable
+ !
+ interface HundredGigE0/0/0/0
+ network point-to-point
+ cost 10
+ hello-interval 3
+ dead-interval 9
+ bfd fast-detect
+ !
  !
 !
 mpls ldp
@@ -3662,65 +3610,65 @@ router bgp 65000
  bgp graceful-restart
  nsr
  neighbor 10.0.0.101
-  remote-as 65000
-  description RR-JKT-01
-  password clear BGP-SECRET-RR1
-  ttl-security hops 1
-  update-source Loopback0
-  address-family ipv4 unicast
-   route-policy PASS-ALL in
-   route-policy PASS-ALL out
-  !
-  address-family vpnv4 unicast
-   route-policy PASS-ALL in
-   route-policy PASS-ALL out
-  !
-  address-family l2vpn evpn
-   route-policy PASS-ALL in
-   route-policy PASS-ALL out
-  !
+ remote-as 65000
+ description RR-JKT-01
+ password clear BGP-SECRET-RR1
+ ttl-security hops 1
+ update-source Loopback0
+ address-family ipv4 unicast
+ route-policy PASS-ALL in
+ route-policy PASS-ALL out
+ !
+ address-family vpnv4 unicast
+ route-policy PASS-ALL in
+ route-policy PASS-ALL out
+ !
+ address-family l2vpn evpn
+ route-policy PASS-ALL in
+ route-policy PASS-ALL out
+ !
  !
  neighbor 10.0.0.102
-  remote-as 65000
-  description RR-SBY-01
-  password clear BGP-SECRET-RR2
-  ttl-security hops 1
-  update-source Loopback0
-  address-family ipv4 unicast
-   route-policy PASS-ALL in
-   route-policy PASS-ALL out
-  !
-  address-family vpnv4 unicast
-   route-policy PASS-ALL in
-   route-policy PASS-ALL out
-  !
-  address-family l2vpn evpn
-   route-policy PASS-ALL in
-   route-policy PASS-ALL out
-  !
+ remote-as 65000
+ description RR-SBY-01
+ password clear BGP-SECRET-RR2
+ ttl-security hops 1
+ update-source Loopback0
+ address-family ipv4 unicast
+ route-policy PASS-ALL in
+ route-policy PASS-ALL out
+ !
+ address-family vpnv4 unicast
+ route-policy PASS-ALL in
+ route-policy PASS-ALL out
+ !
+ address-family l2vpn evpn
+ route-policy PASS-ALL in
+ route-policy PASS-ALL out
+ !
  !
  vrf CUSTOMER-A
-  rd 65000:100
-  address-family ipv4 unicast
-   label mode per-vrf
-   redistribute connected
-  !
-  neighbor 192.168.1.2
-   remote-as 65001
-   description CE1-CUSTOMER-A
-   address-family ipv4 unicast
-    route-policy PASS-ALL in
-    route-policy PASS-ALL out
-   !
-  !
+ rd 65000:100
+ address-family ipv4 unicast
+ label mode per-vrf
+ redistribute connected
+ !
+ neighbor 192.168.1.2
+ remote-as 65001
+ description CE1-CUSTOMER-A
+ address-family ipv4 unicast
+ route-policy PASS-ALL in
+ route-policy PASS-ALL out
+ !
+ !
  !
 !
 evpn
  evi 100
-  bgp
-   route-target import 65000:100
-   route-target export 65000:100
-  !
+ bgp
+ route-target import 65000:100
+ route-target export 65000:100
+ !
  !
 !
 commit label STUDI-KASUS-OSPF-LDP-PE-JKT-01 comment Opsi 1 OSPF LDP PE-JKT-01
@@ -3759,30 +3707,30 @@ router ospf 100
  nsr
  nsf cisco
  area 0
-  interface Loopback0
-   passive enable
-  !
-  interface HundredGigE0/0/0/0
-   network point-to-point
-   cost 10
-   hello-interval 3
-   dead-interval 9
-   bfd fast-detect
-  !
-  interface HundredGigE0/0/0/1
-   network point-to-point
-   cost 10
-   hello-interval 3
-   dead-interval 9
-   bfd fast-detect
-  !
-  interface HundredGigE0/0/0/2
-   network point-to-point
-   cost 50
-   hello-interval 3
-   dead-interval 9
-   bfd fast-detect
-  !
+ interface Loopback0
+ passive enable
+ !
+ interface HundredGigE0/0/0/0
+ network point-to-point
+ cost 10
+ hello-interval 3
+ dead-interval 9
+ bfd fast-detect
+ !
+ interface HundredGigE0/0/0/1
+ network point-to-point
+ cost 10
+ hello-interval 3
+ dead-interval 9
+ bfd fast-detect
+ !
+ interface HundredGigE0/0/0/2
+ network point-to-point
+ cost 50
+ hello-interval 3
+ dead-interval 9
+ bfd fast-detect
+ !
  !
 !
 mpls ldp
@@ -3801,7 +3749,7 @@ commit label STUDI-KASUS-OSPF-LDP-P-JKT-01 comment Opsi 1 OSPF LDP P-JKT-01
 end
 ```
 
-**Verifikasi Opsi 1:**
+**Verification Opsi 1:**
 
 ```
 show ospf neighbor
@@ -3820,38 +3768,38 @@ Jika semua `show` di atas sehat dan ping VRF berhasil, Opsi 1 sudah cukup untuk 
 
 ### G.6 Opsi 2: Segment Routing sebagai Alternatif, Kapan Dipakai dan Kapan Tidak
 
-**Pakai SR sebagai Opsi 2 jika:**
+**Gunakan SR sebagai Opsi 2 jika:**
 
-- Ada customer yang minta SR Policy dengan path eksplisit yang tidak bisa dipenuhi LDP, misalnya low latency via path tertentu
-- Ada kebutuhan TI-LFA yang tidak bisa dipenuhi LFA klasik di topologi tertentu
+- Ada customer yang minta SR Policy dengan path eksplisit yang tidak dapat dipenuhi LDP, misalnya low latency via path tertentu
+- Ada kebutuhan TI-LFA yang tidak dapat dipenuhi LFA klasik di topology tertentu
 - Ada kebutuhan Flex-Algo untuk low latency atau disjoint
 - Ada kebutuhan migrasi ke SRv6 untuk 5G atau DCI di masa depan, dan tim sudah siap
 - Core sudah di atas 100 node dan LDP mulai terasa stateful dan sulit di-troubleshoot
 
-**Jangan pakai SR jika:**
+**Jangan gunakan SR jika:**
 
 - ISP masih di bawah 30 node dan LDP sudah stabil
 - Tim belum pernah lab SR di XRv 9000, dan belum pernah uji failover SR
-- Tidak ada customer yang minta TE atau SLA khusus yang butuh SR Policy
-- Topologi masih single link atau ring sederhana, TI-LFA tidak akan punya backup path
-- Budget dan waktu maintenance terbatas, migrasi LDP ke SR butuh jendela maintenance yang tidak kecil
+- Tidak ada customer yang minta TE atau SLA khusus yang membutuhkan SR Policy
+- Topology masih single link atau ring sederhana, TI-LFA tidak akan memiliki backup path
+- Budget dan waktu maintenance terbatas, migrasi LDP ke SR membutuhkan jendela maintenance yang tidak kecil
 
 **Perbandingan Opsi 1 dan Opsi 2:**
 
 | Aspek | Opsi 1: OSPF + LDP | Opsi 2: OSPF + SR-MPLS atau SRv6 |
 | --- | --- | --- |
-| Kompleksitas operasi | Rendah, tim sudah paham | Lebih tinggi, butuh pemahaman SID, SRGB, SR Policy |
+| Kompleksitas operasi | Rendah, tim sudah paham | Lebih tinggi, membutuhkan pemahaman SID, SRGB, SR Policy |
 | Traffic Engineering | Tidak ada, hanya IGP shortest path | Native, SR Policy, Flex-Algo |
-| Fast Reroute | LFA, terbatas di topologi tertentu | TI-LFA, lebih kuat dan lebih deterministik |
-| Skala label | Label dinamis LDP, per FEC | Label deterministik dari SID, lebih mudah dibaca |
+| Fast Reroute | LFA, terbatas di topology tertentu | TI-LFA, lebih kuat dan lebih deterministik |
+| Scale label | Label dinamis LDP, per FEC | Label deterministik dari SID, lebih mudah dibaca |
 | Troubleshooting | Label berubah per hop, sulit trace | Label deterministik, mudah trace dari SID |
-| Kebutuhan training | Minimal | Butuh training SR dan lab XRv 9000 |
-| Risiko migrasi | Tidak ada, sudah jalan | Ada risiko saat migrasi, butuh sr-prefer dan rollback plan |
+| Kebutuhan training | Minimal | Membutuhkan training SR dan lab XRv 9000 |
+| Risiko migrasi | Tidak ada, sudah berjalan | Ada risiko saat migrasi, membutuhkan sr-prefer dan rollback plan |
 | Rekomendasi guide ini | Utama, untuk semua ISP | Alternatif, hanya jika ada kebutuhan TE atau SRv6 |
 
 ### G.7 Cara Mengaktifkan Opsi 2 di Atas Opsi 1 Tanpa Downtime
 
-Ini adalah cara yang dipakai di studi kasus saat ISP akhirnya butuh SR Policy untuk satu customer low latency. SR diaktifkan hanya di 2 PE dan 2 P yang dilewati customer tersebut, bukan di seluruh core sekaligus.
+Ini adalah cara yang dipakai di studi kasus saat ISP akhirnya membutuhkan SR Policy untuk satu customer low latency. SR diaktifkan hanya di 2 PE dan 2 P yang dilewati customer tersebut, bukan di seluruh core sekaligus.
 
 **Langkah 1: Aktifkan SR berdampingan dengan LDP di PE-JKT-01**
 
@@ -3867,9 +3815,9 @@ router ospf 100
  segment-routing forwarding mpls
  segment-routing mpls sr-prefer
  area 0
-  interface Loopback0
-   prefix-sid index 1
-  !
+ interface Loopback0
+ prefix-sid index 1
+ !
  !
 !
 commit label SR-OPSI2-PE-JKT-01 comment Aktifkan SR sebagai Opsi 2 di PE-JKT-01
@@ -3887,16 +3835,16 @@ router ospf 100
  segment-routing mpls
  segment-routing forwarding mpls
  area 0
-  interface Loopback0
-   prefix-sid index 11
-  !
+ interface Loopback0
+ prefix-sid index 11
+ !
  !
 !
 commit label SR-OPSI2-P-JKT-01 comment Aktifkan SR sebagai Opsi 2 di P-JKT-01
 end
 ```
 
-**Langkah 3: Validasi SR sudah aktif, tetapi LDP masih jalan**
+**Langkah 3: Validation SR sudah aktif, tetapi LDP masih berjalan**
 
 ```
 show ospf segment-routing
@@ -3908,49 +3856,49 @@ ping vrf CUSTOMER-A 192.168.2.2 source 192.168.1.1
 
 Jika `show mpls forwarding` menampilkan label SR 16002 untuk PE tujuan, dan ping VRF masih berhasil, maka SR sudah aktif sebagai Opsi 2. LDP masih aktif sebagai fallback.
 
-**Langkah 4: Buat SR Policy hanya untuk customer yang butuh**
+**Langkah 4: Buat SR Policy hanya untuk customer yang membutuhkan**
 
 ```
 configure
 segment-routing
  traffic-eng
-  segment-list SL-LOWLAT-JKT-SBY
-   index 10 mpls label 16011
-   index 20 mpls label 16013
-   index 30 mpls label 16003
-  !
-  policy POL-LOWLAT-CUSTOMER-B
-   color 128 end-point ipv4 10.0.0.3
-   candidate-paths
-    preference 100
-     explicit segment-list SL-LOWLAT-JKT-SBY
-    !
-   !
-  !
+ segment-list SL-LOWLAT-JKT-SBY
+ index 10 mpls label 16011
+ index 20 mpls label 16013
+ index 30 mpls label 16003
+ !
+ policy POL-LOWLAT-CUSTOMER-B
+ color 128 end-point ipv4 10.0.0.3
+ candidate-paths
+ preference 100
+ explicit segment-list SL-LOWLAT-JKT-SBY
+ !
+ !
+ !
  !
 !
 router bgp 65000
  vrf CUSTOMER-B-LOWLAT
-  address-family ipv4 unicast
-   segment-routing policy color 128
-  !
+ address-family ipv4 unicast
+ segment-routing policy color 128
+ !
  !
 !
 commit label SR-POLICY-OPSI2 comment SR Policy hanya untuk CUSTOMER-B low latency
 end
 ```
 
-Hanya VRF CUSTOMER-B-LOWLAT yang memakai SR Policy. VRF lain tetap memakai LDP dan IGP shortest path. Ini adalah kunci Opsi 2: SR tidak memaksa semua customer pindah, hanya customer yang butuh.
+Hanya VRF CUSTOMER-B-LOWLAT yang menggunakan SR Policy. VRF lain tetap menggunakan LDP dan IGP shortest path. Ini adalah kunci Opsi 2: SR tidak memaksa semua customer pindah, hanya customer yang membutuhkan.
 
 **Langkah 5: Jika SR sudah stabil, baru pertimbangkan nonaktifkan LDP**
 
-Jangan nonaktifkan LDP di seluruh core. Nonaktifkan LDP per node, mulai dari P, dengan `no mpls ldp` dan validasi satu minggu per node. Jika ada masalah, rollback satu node saja.
+Jangan nonaktifkan LDP di seluruh core. Nonaktifkan LDP per node, mulai dari P, dengan `no mpls ldp` dan validation satu minggu per node. Jika ada masalah, rollback satu node saja.
 
 ### G.8 Studi Kasus Troubleshooting OSPF
 
 **Kasus 1: OSPF neighbor tidak terbentuk**
 
-Gejala: `show ospf neighbor` kosong. Cek: MTU interface sama atau tidak, `network point-to-point` sudah sama di kedua sisi, hello dan dead interval sama, BFD tidak memblokir, ACL tidak memblokir multicast OSPF 224.0.0.5 dan 224.0.0.6.
+Gejala: `show ospf neighbor` kosong. Periksa: MTU interface sama atau tidak, `network point-to-point` sudah sama di kedua sisi, hello dan dead interval sama, BFD tidak memblokir, ACL tidak memblokir multicast OSPF 224.0.0.5 dan 224.0.0.6.
 
 ```
 show ospf interface HundredGigE0/0/0/0
@@ -3961,11 +3909,11 @@ show ospf neighbor detail
 
 **Kasus 2: OSPF terbentuk, tetapi route Loopback tidak ada**
 
-Gejala: Neighbor Full, tetapi `show route ipv4 10.0.0.2/32` tidak ada. Cek: Loopback di `passive enable` atau tidak, Loopback sudah di area 0 atau belum, filter OSPF tidak memblokir.
+Gejala: Neighbor Full, tetapi `show route ipv4 10.0.0.2/32` tidak ada. Periksa: Loopback di `passive enable` atau tidak, Loopback sudah di area 0 atau belum, filter OSPF tidak memblokir.
 
 **Kasus 3: OSPF flapping**
 
-Gejala: Neighbor naik turun. Cek: BFD, LPTS drop untuk OSPF, QoS class CONTROL di-police terlalu rendah, MTU, dan interface error.
+Gejala: Neighbor naik turun. Periksa: BFD, LPTS drop untuk OSPF, QoS class CONTROL policed terlalu rendah, MTU, dan interface error.
 
 ```
 show lpts pifib policer
@@ -3974,20 +3922,12 @@ show bfd session
 show interfaces HundredGigE0/0/0/0
 ```
 
-**Kasus 4: Path OSPF tidak sesuai desain**
+**Kasus 4: Path OSPF tidak sesuai design**
 
-Gejala: Traffic Jakarta ke Surabaya lewat Bandung, padahal seharusnya langsung. Cek: `show route ipv4 10.0.0.3/32` dan `show ospf database`. Cek metric: metric pergi dan pulang harus simetris. Jika metric Jakarta ke Surabaya 50, tetapi Surabaya ke Jakarta 10, maka path akan asimetris.
+Gejala: Traffic Jakarta ke Surabaya lewat Bandung, padahal seharusnya langsung. Periksa: `show route ipv4 10.0.0.3/32` dan `show ospf database`. Periksa metric: metric pergi dan pulang harus simetris. Jika metric Jakarta ke Surabaya 50, tetapi Surabaya ke Jakarta 10, maka path akan asimetris.
 
 ```
 show route ipv4 10.0.0.3/32 detail
 show ospf database router
 show ospf interface
 ```
-
-### G.9 Kesimpulan Studi Kasus
-
-- OSPF sebagai IGP utama adalah pilihan yang operasional dan aman untuk ISP regional dengan tim OSPF yang kuat.
-- LDP sebagai Opsi 1 adalah pilihan yang stabil dan cukup untuk mayoritas layanan L3VPN dan EVPN.
-- Segment Routing sebagai Opsi 2 adalah pilihan yang tepat hanya jika ada kebutuhan TE, TI-LFA, Flex-Algo, atau SRv6 yang jelas.
-- Jangan migrasi ke SR karena tren. Migrasi ke SR karena ada customer atau SLA yang butuh SR.
-- Desain yang benar adalah: Opsi 1 jalan dulu dan stabil, Opsi 2 diaktifkan bertahap per customer atau per POP, bukan big bang di seluruh core.
