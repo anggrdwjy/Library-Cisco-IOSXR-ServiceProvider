@@ -2,17 +2,17 @@
 
 ## Daftar Isi
 
-- [Modul 1: Architecture IOS-XR dan Matrix Platform](https://github.com/anggrdwjy/Library-Cisco-IOSXR-ServiceProvider#modul-1-architecture-ios-xr-dan-matrix-platform)
-- [Modul 2: Workflow Configuration, Commit 2-Stage, Rollback, dan Operasional](https://github.com/anggrdwjy/Library-Cisco-IOSXR-ServiceProvider#modul-2-workflow-configuration-commit-2-stage-rollback-dan-operasional)
-- [Modul 3: Fondasi Transport, IGP, MPLS LDP, dan BGP Labeled Unicast](https://github.com/anggrdwjy/Library-Cisco-IOSXR-ServiceProvider#modul-3-fondasi-transport-igp-mpls-ldp-dan-bgp-labeled-unicast)
-- [Modul 4: BGP Core, Route Reflector, dan MPLS L3VPN End to End](https://github.com/anggrdwjy/Library-Cisco-IOSXR-ServiceProvider#modul-4-bgp-core-route-reflector-dan-mpls-l3vpn-end-to-end)
-- [Modul 5: Segment Routing MPLS, SR Policy, dan TI-LFA](https://github.com/anggrdwjy/Library-Cisco-IOSXR-ServiceProvider#modul-5-segment-routing-mpls-sr-policy-dan-ti-lfa)
-- [Modul 6: SRv6, Micro-SID, dan Migrasi dari SR-MPLS](https://github.com/anggrdwjy/Library-Cisco-IOSXR-ServiceProvider#modul-6-srv6-micro-sid-dan-migrasi-dari-sr-mpls)
-- [Modul 7: EVPN VPWS, VPLS, dan EVPN E-LAN](https://github.com/anggrdwjy/Library-Cisco-IOSXR-ServiceProvider#modul-7-evpn-vpws-vpls-dan-evpn-e-lan)
-- [Modul 8: EVPN L3VPN, Interworking L3VPN dan EVPN](https://github.com/anggrdwjy/Library-Cisco-IOSXR-ServiceProvider#modul-8-evpn-l3vpn-interworking-l3vpn-dan-evpn)
-- [Modul 9: Scale, High Availability, QoS Core, dan Security Control Plane](https://github.com/anggrdwjy/Library-Cisco-IOSXR-ServiceProvider#modul-9-scale-high-availability-qos-core-dan-security-control-plane)
+- [Modul 1. Architecture IOS-XR dan Matrix Platform]( #modul-1-architecture-ios-xr-dan-matrix-platform)
+- [Modul 2. Workflow Configuration, Commit 2-Stage, Rollback, dan Operasional]( #modul-2-workflow-configuration-commit-2-stage-rollback-dan-operasional)
+- [Modul 3. Fondasi Transport, IGP, MPLS LDP, dan BGP Labeled Unicast]( #modul-3-fondasi-transport-igp-mpls-ldp-dan-bgp-labeled-unicast)
+- [Modul 4. BGP Core, Route Reflector, dan MPLS L3VPN End to End]( #modul-4-bgp-core-route-reflector-dan-mpls-l3vpn-end-to-end)
+- [Modul 5. Segment Routing MPLS, SR Policy, dan TI-LFA]( #modul-5-segment-routing-mpls-sr-policy-dan-ti-lfa)
+- [Modul 6. SRv6, Micro-SID, dan Migrasi dari SR-MPLS]( #modul-6-srv6-micro-sid-dan-migrasi-dari-sr-mpls)
+- [Modul 7. EVPN VPWS, VPLS, dan EVPN E-LAN]( #modul-7-evpn-vpws-vpls-dan-evpn-e-lan)
+- [Modul 8. EVPN L3VPN, Interworking L3VPN dan EVPN]( #modul-8-evpn-l3vpn-interworking-l3vpn-dan-evpn)
+- [Modul 9. Scale, High Availability, QoS Core, dan Security Control Plane]( #modul-9-scale-high-availability-qos-core-dan-security-control-plane)
 
-## Modul 1: Architecture IOS-XR dan Matrix Platform
+## Modul 1. Architecture IOS-XR dan Matrix Platform
 
 ### 1.1 Kenapa IOS-XR Beda dari IOS dan IOS-XE
 
@@ -75,7 +75,7 @@ show install active
 - **Satu perubahan, satu commit:** Setiap commit harus memiliki label dan comment yang jelas.
 
 
-## Modul 2: Workflow Configuration, Commit 2-Stage, Rollback, dan Operasional
+## Modul 2. Workflow Configuration, Commit 2-Stage, Rollback, dan Operasional
 
 ### 2.1 Dua Mode yang Harus Dikuasai
 
@@ -204,7 +204,7 @@ show processes ospf
 Semua configuration di guide ini dapat divalidasi di XRv 9000. Topology lab minimal: CE1 - PE1 - P1 - P2 - PE2 - CE2, dengan RR1 dan RR2. Gunakan RAM minimal 8 GB per node untuk BGP dan SR. Jangan validation scale 10.000 VRF di XRv 9000, validation logika dan sintaksnya saja.
 
 
-## Modul 3: Fondasi Transport, IGP, MPLS LDP, dan BGP Labeled Unicast
+## Modul 3. Fondasi Transport, IGP, MPLS LDP, dan BGP Labeled Unicast
 
 ### 3.1 Design Addressing
 
@@ -464,7 +464,7 @@ traceroute 10.0.0.2 source Loopback0
 Jika `show mpls forwarding` tidak menampilkan label untuk Loopback PE tujuan, jangan lanjut ke Modul 4. Perbaiki IGP dan LDP dulu.
 
 
-## Modul 4: BGP Core, Route Reflector, dan MPLS L3VPN End to End
+## Modul 4. BGP Core, Route Reflector, dan MPLS L3VPN End to End
 
 ### 4.1 Architecture BGP Core
 
@@ -824,7 +824,7 @@ Urutan troubleshooting jika ping gagal: 1) Periksa PE-CE, 2) Periksa VPNv4 di PE
 - **Redistribute tanpa filter:** Selalu gunakan route-policy dengan prefix-set yang jelas.
 
 
-## Modul 5: Segment Routing MPLS, SR Policy, dan TI-LFA
+## Modul 5. Segment Routing MPLS, SR Policy, dan TI-LFA
 
 ### 5.1 Kenapa Tinggalkan LDP
 
@@ -1156,7 +1156,7 @@ ping vrf CUSTOMER-A 192.168.2.2 source 192.168.1.1
 ```
 
 
-## Modul 6: SRv6, Micro-SID, dan Migrasi dari SR-MPLS
+## Modul 6. SRv6, Micro-SID, dan Migrasi dari SR-MPLS
 
 ### 6.1 Kenapa SRv6
 
@@ -1436,7 +1436,7 @@ ping vrf CUSTOMER-A 192.168.2.2 source 192.168.1.1
 ping vrf CUSTOMER-A 2001:db8:192:2::2 source 2001:db8:192:1::1
 ```
 
-## Modul 7: EVPN VPWS, VPLS, dan EVPN E-LAN
+## Modul 7. EVPN VPWS, VPLS, dan EVPN E-LAN
 
 ### 7.1 EVPN versus VPLS dan VPWS Klasik
 
@@ -1729,7 +1729,7 @@ show l2vpn forwarding bridge-domain BG-CUSTOMER-A:BD-200 mac-address location 0/
 show arp vrf CUSTOMER-A
 ```
 
-## Modul 8: EVPN L3VPN, Interworking L3VPN dan EVPN
+## Modul 8. EVPN L3VPN, Interworking L3VPN dan EVPN
 
 ### 8.1 EVPN L3VPN versus MPLS L3VPN
 
@@ -1963,7 +1963,7 @@ ping vrf CUSTOMER-A 2001:db8:192:2::2 source 2001:db8:192:1::1
 - **Mencampur EVI dan VRF secara acak:** Satu EVI harus memiliki satu RT yang jelas dan satu VRF yang jelas.
 
 
-## Modul 9: Scale, High Availability, QoS Core, dan Security Control Plane
+## Modul 9. Scale, High Availability, QoS Core, dan Security Control Plane
 
 ### 9.1 Scale dan Capacity Core
 
